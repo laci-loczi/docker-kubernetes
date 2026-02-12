@@ -1,56 +1,171 @@
 <!DOCTYPE html>
-<html>
+<html lang="hu">
 <head>
-    <title>OpsRoom - Kubernetes Monitor</title>
+    <meta charset="UTF-8">
+    <title>Cluster Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Courier New', Courier, monospace; margin: 0; padding: 20px; display: flex; gap: 20px; height: 90vh; }
-        .panel { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 20px; flex: 1; display: flex; flex-direction: column; }
-        h2 { color: #58a6ff; margin-top: 0; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
-        
-        /* Chat stílusok */
-        #messages { list-style-type: none; margin: 0; padding: 0; flex-grow: 1; overflow-y: auto; margin-bottom: 10px; }
-        #messages li { padding: 5px 10px; border-bottom: 1px solid #21262d; }
-        #messages li:nth-child(odd) { background: #0d1117; }
-        form { display: flex; }
-        input { flex-grow: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 10px; }
-        button { background: #238636; color: white; border: none; padding: 10px 20px; cursor: pointer; }
-        button:hover { background: #2ea043; }
+        :root {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --primary-color: #3b82f6; /* Kellemes kék */
+            --text-main: #111827;
+            --text-secondary: #6b7280;
+            --border-color: #e5e7eb;
+            --success-color: #10b981;
+        }
 
-        /* Monitor stílusok */
-        .stat-box { margin-bottom: 15px; background: #0d1117; padding: 10px; border-left: 4px solid #8b949e; }
-        .stat-label { font-size: 0.8em; color: #8b949e; }
-        .stat-value { font-size: 1.5em; font-weight: bold; color: #3fb950; }
-        .live-indicator { color: #f85149; animation: blink 1s infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr; /* 1/3 monitor, 2/3 chat */
+            gap: 24px;
+            max-width: 1200px;
+            width: 100%;
+            height: 85vh;
+        }
+
+        /* Kártya stílusok (Card Design) */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Monitor Szekció */
+        .stat-item {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .stat-item:last-child { border-bottom: none; }
+        
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        .live-badge {
+            background-color: #d1fae5;
+            color: var(--success-color);
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        /* Chat Szekció */
+        #messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            list-style: none;
+            padding: 0;
+            margin-bottom: 20px;
+        }
+        #messages li {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            background-color: #f9fafb;
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+        
+        form { display: flex; gap: 10px; }
+        
+        input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--primary-color); }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #2563eb; }
+
     </style>
 </head>
 <body>
 
-    <div class="panel">
-        <h2>🖥️ System Monitor <span class="live-indicator">● LIVE</span></h2>
-        
-        <div class="stat-box" style="border-color: #58a6ff;">
-            <div class="stat-label">POD HOSTNAME</div>
-            <div class="stat-value" id="hostname">Connecting...</div>
+    <div class="container">
+        <div class="card">
+            <h2>
+                Rendszerállapot
+                <span class="live-badge">● Élő kapcsolat</span>
+            </h2>
+            
+            <div class="stat-item">
+                <div class="stat-label">Pod Azonosító (Hostname)</div>
+                <div class="stat-value" id="hostname">Csatlakozás...</div>
+            </div>
+
+            <div class="stat-item">
+                <div class="stat-label">Memória Használat</div>
+                <div class="stat-value" id="memory">---</div>
+            </div>
+
+            <div class="stat-item">
+                <div class="stat-label">Üzemidő (Uptime)</div>
+                <div class="stat-value" id="uptime">---</div>
+            </div>
         </div>
 
-        <div class="stat-box" style="border-color: #d29922;">
-            <div class="stat-label">MEMORY USAGE</div>
-            <div class="stat-value" id="memory">---</div>
+        <div class="card">
+            <h2>Belső Kommunikáció</h2>
+            <ul id="messages">
+                </ul>
+            <form id="form">
+                <input id="input" autocomplete="off" placeholder="Írj egy üzenetet..." />
+                <button type="submit">Küldés</button>
+            </form>
         </div>
-
-        <div class="stat-box" style="border-color: #f85149;">
-            <div class="stat-label">UPTIME (SEC)</div>
-            <div class="stat-value" id="uptime">---</div>
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>💬 Team Chat</h2>
-        <ul id="messages"></ul>
-        <form id="form" action="">
-            <input id="input" autocomplete="off" placeholder="Írj parancsot..." /><button>Send</button>
-        </form>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -60,7 +175,6 @@
         var input = document.getElementById('input');
         var messages = document.getElementById('messages');
 
-        // Chat küldés
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             if (input.value) {
@@ -69,19 +183,18 @@
             }
         });
 
-        // Chat fogadás
         socket.on('chat message', function(msg) {
             var item = document.createElement('li');
-            item.textContent = `> ${msg}`;
+            item.textContent = msg;
             messages.appendChild(item);
             messages.scrollTop = messages.scrollHeight;
         });
 
-        // Rendszeradatok fogadása
         socket.on('system stats', function(stats) {
             document.getElementById('hostname').textContent = stats.hostname;
             document.getElementById('memory').textContent = stats.memory;
-            document.getElementById('uptime').textContent = stats.uptime;
+            // Szép formázás az időhöz
+            document.getElementById('uptime').textContent = stats.uptime + ' másodperc';
         });
     </script>
 </body>
