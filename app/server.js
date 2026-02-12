@@ -1,28 +1,48 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require("socket.io");
+const os = require('os');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const PORT = 3000;
 
+// Statikus fájlok kiszolgálása (CSS, JS a frontendhez)
+app.use(express.static('public'));
+
+// Ha valaki megnyitja az oldalt
 app.get('/', (req, res) => {
-    // Itt a változás: res.json helyett res.send HTML kóddal
-    res.send(`
-        <html>
-        <head>
-            <style>
-                body { font-family: sans-serif; background-color: #2c3e50; color: white; text-align: center; padding-top: 50px; }
-                .card { background-color: #34495e; padding: 20px; border-radius: 10px; display: inline-block; }
-                h1 { color: #2ecc71; }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1>🚀 SIKER! Működik a Kubernetes!</h1>
-                <p>Ezt az oldalt a Jenkins frissítette automatikusan.</p>
-                <hr>
-                <p>Én vagyok a Pod: <strong>${process.env.HOSTNAME}</strong></p>
-            </div>
-        </body>
-        </html>
-    `);
+    res.sendFile(__dirname + '/public/index.html');
 });
 
-app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
+// Socket.io kapcsolat kezelése
+io.on('connection', (socket) => {
+    console.log('Egy felhasználó csatlakozott!');
+
+    // Üzenet fogadása a klienstől és továbbküldése mindenkinek
+    socket.on('chat message', (msg) => {
+        io.emit('chat message', msg);
+    });
+
+    // Rendszeradatok küldése 2 másodpercenként
+    const metricsInterval = setInterval(() => {
+        const usage = process.memoryUsage();
+        const stats = {
+            hostname: os.hostname(),
+            uptime: Math.floor(process.uptime()),
+            memory: Math.round(usage.heapUsed / 1024 / 1024) + ' MB',
+            cpu: os.loadavg()[0] // 1 perces átlag terhelés
+        };
+        socket.emit('system stats', stats);
+    }, 2000);
+
+    socket.on('disconnect', () => {
+        clearInterval(metricsInterval);
+        console.log('Felhasználó kilépett');
+    });
+});
+
+server.listen(PORT, () => {
+    console.log(`🚀 OpsRoom fut a ${PORT}-es porton`);
+});
