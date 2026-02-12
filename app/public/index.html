@@ -2,133 +2,40 @@
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
-    <title>Cluster Dashboard</title>
+    <title>Node.js Traffic Control</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg-color: #f3f4f6;
             --card-bg: #ffffff;
-            --primary-color: #3b82f6; /* Kellemes kék */
-            --text-main: #111827;
-            --text-secondary: #6b7280;
-            --border-color: #e5e7eb;
+            --primary-color: #2563eb;
+            --danger-color: #ef4444;
             --success-color: #10b981;
+            --text-main: #111827;
         }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            margin: 0;
-            padding: 40px;
-            display: flex;
-            justify-content: center;
-            height: 100vh;
-            box-sizing: border-box;
-        }
-
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 1.5fr; /* 1/3 monitor, 2/3 chat */
-            gap: 24px;
-            max-width: 1200px;
-            width: 100%;
-            height: 85vh;
-        }
-
-        /* Kártya stílusok (Card Design) */
-        .card {
-            background: var(--card-bg);
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            padding: 24px;
-            display: flex;
-            flex-direction: column;
-            border: 1px solid var(--border-color);
-        }
-
-        h2 {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        /* Monitor Szekció */
-        .stat-item {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-        .stat-item:last-child { border-bottom: none; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 40px; display: flex; justify-content: center; height: 100vh; box-sizing: border-box; }
+        .container { display: grid; grid-template-columns: 300px 1fr; gap: 24px; max-width: 1400px; width: 100%; height: 85vh; }
         
-        .stat-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-secondary);
-            margin-bottom: 8px;
-        }
-        .stat-value {
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--text-main);
-        }
-        .live-badge {
-            background-color: #d1fae5;
-            color: var(--success-color);
-            font-size: 12px;
-            padding: 4px 8px;
-            border-radius: 20px;
-            font-weight: 500;
-        }
-
-        /* Chat Szekció */
-        #messages {
-            flex-grow: 1;
-            overflow-y: auto;
-            list-style: none;
-            padding: 0;
-            margin-bottom: 20px;
-        }
-        #messages li {
-            margin-bottom: 12px;
-            padding: 10px 14px;
-            background-color: #f9fafb;
-            border-radius: 8px;
-            font-size: 14px;
-            color: var(--text-main);
-            border: 1px solid var(--border-color);
-        }
+        .card { background: var(--card-bg); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); padding: 24px; display: flex; flex-direction: column; border: 1px solid #e5e7eb; }
         
-        form { display: flex; gap: 10px; }
-        
-        input {
-            flex-grow: 1;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            font-family: inherit;
-            font-size: 14px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        input:focus { border-color: var(--primary-color); }
+        h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; color: #374151; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: #d1fae5; color: var(--success-color); padding: 4px 8px; border-radius: 99px; font-size: 11px; }
 
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0 24px;
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        button:hover { background-color: #2563eb; }
+        /* Bal oldal */
+        .stat-box { margin-bottom: 15px; padding: 15px; background: #f9fafb; border-radius: 8px; border-left: 4px solid var(--primary-color); }
+        .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #111827; }
+
+        /* Jobb oldal (Grafikon) */
+        .chart-container { flex-grow: 1; position: relative; width: 100%; }
+        
+        .controls { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        .btn-normal { background: var(--success-color); color: white; }
+        .btn-stress { background: var(--danger-color); color: white; }
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
 
     </style>
 </head>
@@ -136,65 +43,94 @@
 
     <div class="container">
         <div class="card">
-            <h2>
-                Rendszerállapot
-                <span class="live-badge">● Élő kapcsolat</span>
-            </h2>
+            <h2>Node.js Backend <span class="badge">ONLINE</span></h2>
             
-            <div class="stat-item">
-                <div class="stat-label">Pod Azonosító (Hostname)</div>
-                <div class="stat-value" id="hostname">Csatlakozás...</div>
+            <div class="stat-box">
+                <div class="stat-label">Pod Hostname</div>
+                <div class="stat-value" id="hostname">...</div>
             </div>
-
-            <div class="stat-item">
-                <div class="stat-label">Memória Használat</div>
-                <div class="stat-value" id="memory">---</div>
+            <div class="stat-box" style="border-color: #8b5cf6;">
+                <div class="stat-label">Request / Sec</div>
+                <div class="stat-value" id="rps">0</div>
             </div>
-
-            <div class="stat-item">
-                <div class="stat-label">Üzemidő (Uptime)</div>
-                <div class="stat-value" id="uptime">---</div>
+            <div class="stat-box" style="border-color: #ef4444;">
+                <div class="stat-label">Server Load</div>
+                <div class="stat-value" id="load">0%</div>
             </div>
         </div>
 
         <div class="card">
-            <h2>Belső Kommunikáció</h2>
-            <ul id="messages">
-                </ul>
-            <form id="form">
-                <input id="input" autocomplete="off" placeholder="Írj egy üzenetet..." />
-                <button type="submit">Küldés</button>
-            </form>
+            <h2>Élő Forgalom Monitorozás (Live Traffic)</h2>
+            <div class="chart-container">
+                <canvas id="trafficChart"></canvas>
+            </div>
+            <div class="controls">
+                <button class="btn-normal" onclick="setMode('normal')">🟢 Normál Üzemmód</button>
+                <button class="btn-stress" onclick="setMode('stress')">🔴 DDoS Szimuláció (High Load)</button>
+            </div>
         </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        var socket = io();
-        var form = document.getElementById('form');
-        var input = document.getElementById('input');
-        var messages = document.getElementById('messages');
-
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            if (input.value) {
-                socket.emit('chat message', input.value);
-                input.value = '';
+        const socket = io();
+        
+        // --- 1. Chart.js Konfiguráció ---
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        const trafficChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''), // 20 adatpont az X tengelyen
+                datasets: [{
+                    label: 'Bejövő Kérések (Req/s)',
+                    data: Array(20).fill(0),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4, // Ettől lesz szép görbe a vonal
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 }, // Kikapcsoljuk az animációt a sima frissítésért
+                scales: {
+                    y: { beginAtZero: true, max: 100 }
+                }
             }
         });
 
-        socket.on('chat message', function(msg) {
-            var item = document.createElement('li');
-            item.textContent = msg;
-            messages.appendChild(item);
-            messages.scrollTop = messages.scrollHeight;
-        });
+        // --- 2. Socket.io Kezelés ---
+        
+        // Gombnyomás küldése a szervernek
+        function setMode(mode) {
+            socket.emit('change mode', mode);
+        }
 
-        socket.on('system stats', function(stats) {
-            document.getElementById('hostname').textContent = stats.hostname;
-            document.getElementById('memory').textContent = stats.memory;
-            // Szép formázás az időhöz
-            document.getElementById('uptime').textContent = stats.uptime + ' másodperc';
+        // Adatok fogadása a szervertől (másodpercenként többször is jöhet)
+        socket.on('dashboard update', (data) => {
+            // Szöveges adatok frissítése
+            document.getElementById('hostname').textContent = data.hostname;
+            document.getElementById('rps').textContent = data.rps;
+            document.getElementById('load').textContent = data.load + '%';
+
+            // Grafikon frissítése (Shift-elés)
+            // Levágjuk az első adatot, és hozzáadjuk az újat a végére
+            const chartData = trafficChart.data.datasets[0].data;
+            chartData.shift();
+            chartData.push(data.rps);
+            
+            // Ha nagy a terhelés, pirosra váltunk
+            if (data.load > 80) {
+                trafficChart.data.datasets[0].borderColor = '#ef4444';
+                trafficChart.data.datasets[0].backgroundColor = 'rgba(239, 68, 68, 0.2)';
+            } else {
+                trafficChart.data.datasets[0].borderColor = '#2563eb';
+                trafficChart.data.datasets[0].backgroundColor = 'rgba(37, 99, 235, 0.1)';
+            }
+            
+            trafficChart.update();
         });
     </script>
 </body>
