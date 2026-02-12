@@ -1,0 +1,80 @@
+# k8s/deployment.yaml
+
+# --- 1. NODE.JS BACKEND ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: node
+        image: my-node-app:v1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+---
+# Ez a belső szolgáltatás. Kívülről NEM elérhető (ClusterIP), csak az Nginx látja.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP
+
+---
+
+# --- 2. NGINX FRONTEND ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config-vol
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+      volumes:
+      - name: nginx-config-vol
+        configMap:
+          name: nginx-conf
+---
+# Ez a publikus kapu. A LoadBalancer típus miatt elérhető lesz localhost:80-on.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+  type: LoadBalancer

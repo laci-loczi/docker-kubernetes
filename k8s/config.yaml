@@ -1,0 +1,14 @@
+# k8s/nginx-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+data:
+  default.conf: |
+    server {
+        listen 80;
+        location / {
+            # Itt a trükk! A "backend-service" a Node.js belső neve lesz a K8s-ben.
+            proxy_pass http://backend-service:80; 
+        }
+    }
