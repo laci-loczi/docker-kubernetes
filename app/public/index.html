@@ -74,6 +74,35 @@
             reconnectionAttempts: 10
         });
 
+            // 3. A Gomb vezérlése (DOM elem megkeresése)
+        const btn = document.getElementById('tunnelButton');
+        const dot = btn.querySelector('.dot');
+
+    
+        socket.on('connect', () => {
+            console.log("✅ Kapcsolat létrejött!");
+            btn.classList.remove('offline');
+            btn.classList.add('online');
+            btn.href = BACKEND_URL; // Most már kattintható a link
+            btn.innerHTML = '<span class="dot">🟢</span> System Online';
+        });
+
+        // HA MEGSZAKADT VAGY HIBA VAN (Gép kikapcsolva)
+        socket.on('disconnect', () => {
+            setOffline();
+        });
+
+        socket.on('connect_error', () => {
+            setOffline();
+        });
+
+        function setOffline() {
+            console.log("❌ Kapcsolat megszakadt...");
+            btn.classList.remove('online');
+            btn.classList.add('offline');
+            btn.href = "#"; // Kivesszük a linket
+            btn.innerHTML = '<span class="dot">🔴</span> Offline (Connecting...)';
+        }
         // --- CPU Chart ---
         const cpuCtx = document.getElementById('cpuChart').getContext('2d');
         const cpuChart = new Chart(cpuCtx, {
@@ -162,6 +191,8 @@
         }
         
         socket.on('auth error', (msg) => alert("⛔ " + msg));
+
+        
     </script>
 </body>
 </html>
