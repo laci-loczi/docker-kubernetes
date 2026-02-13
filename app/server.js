@@ -87,5 +87,5 @@ setInterval(() => {
 }, 1000);
 
 server.listen(PORT, () => {
-    console.log(`🚀 Precision Monitor running on ${PORT}`);
+    console.log(`Monitor running on ${PORT}`);
 });

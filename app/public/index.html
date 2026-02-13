@@ -1,169 +1,375 @@
 <!DOCTYPE html>
-<html lang="hu">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Real-Time System Monitor</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K8s System Monitor</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px; color: #1f2937; }
-        
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        
-        /* ÚJ: Pod név stílusa */
-        .pod-info { font-size: 0.9rem; color: #6b7280; margin-top: 5px; }
-        .pod-id { font-weight: bold; color: #4b5563; font-family: monospace; background: #e5e7eb; padding: 2px 6px; border-radius: 4px; }
+    <script src="/socket.io/socket.io.js"></script>
 
-        .controls { display: flex; gap: 10px; }
-        button { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; color: white; }
-        .btn-stress { background-color: #ef4444; }
-        .btn-normal { background-color: #10b981; }
+    <style>
+        :root {
+            --bg-color: #0f172a;       
+            --card-bg: #1e293b;        
+            --border-color: #334155;   
+            --text-main: #f1f5f9;     
+            --text-muted: #94a3b8;     
+            --accent-cpu: #ef4444;     
+            --accent-mem: #3b82f6;     
+            --success: #10b981;        
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
         
-        .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: 80vh; }
-        
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        h2 { margin: 0 0 10px 0; font-size: 1.2rem; display: flex; justify-content: space-between; }
-        
-        .chart-box { flex-grow: 1; position: relative; }
-        .stat-big { font-size: 2rem; font-weight: bold; }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            background-color: var(--success);
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+        }
+
+        .pod-badge {
+            background-color: rgba(148, 163, 184, 0.1);
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            border-color: var(--text-muted);
+            color: var(--text-main);
+        }
+
+        button.active-stress {
+            border-color: var(--accent-cpu);
+            color: var(--accent-cpu);
+            background-color: rgba(239, 68, 68, 0.05);
+        }
+
+        button.active-stress:hover {
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+            flex-grow: 1;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+
+        .unit {
+            font-size: 1rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .chart-container {
+            flex-grow: 1;
+            position: relative;
+            min-height: 200px;
+        }
+        @media (max-width: 768px) {
+            body { padding: 20px; }
+            header { flex-direction: column; align-items: flex-start; gap: 20px; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <div>
-            <h1 style="margin: 0;">🔥 Kubernetes Real-Time Monitor</h1>
-            <div class="pod-info">Kiszolgáló Pod: <span id="podName" class="pod-id">Csatlakozás...</span></div>
+    <header>
+        <div class="brand">
+            <div class="subtitle">
+                <span id="connectionStatus">Serving Pod:</span>
+                <span class="pod-badge" id="podName">Waiting for data...</span>
+            </div>
         </div>
+        
         <div class="controls">
-            <button class="btn-normal" onclick="setMode('normal')">🟢 Normál</button>
-            <button class="btn-stress" onclick="setMode('stress')">🔴 Hardcore Terhelés</button>
+            <button onclick="setMode('normal')">
+                </i> Real Usage
+            </button>
+            <button class="active-stress" onclick="setMode('stress')">
+                </i> Stress Test
+            </button>
         </div>
-    </div>
+    </header>
 
-    <div class="dashboard">
+    <main class="dashboard-grid">
         
         <div class="card">
-            <h2>
-                CPU Használat
-                <span id="cpuValue" class="stat-big" style="color: #ef4444;">0%</span>
-            </h2>
-            <div class="chart-box">
-                <canvas id="cpuChart"></canvas>
+            <div class="card-header">
+                <div>
+                    <div class="card-title">CPU Load</div>
+                    <div class="metric-value" id="cpuValue" style="color: var(--accent-cpu)">0<span class="unit">%</span></div>
+                </div>
+                <i class="fas fa-server" style="color: var(--border-color); font-size: 1.5rem;"></i>
             </div>
+            <div class="chart-container"><canvas id="cpuChart"></canvas></div>
         </div>
 
         <div class="card">
-            <h2>
-                Memória Használat
-                <span id="memValue" class="stat-big" style="color: #3b82f6;">0%</span>
-            </h2>
-            <div class="chart-box">
-                <canvas id="memChart"></canvas>
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Memory Usage</div>
+                    <div class="metric-value" id="memValue" style="color: var(--accent-mem)">0<span class="unit">%</span></div>
+                    <div class="sub-metric">
+                        <span id="memAbs">0 / 0 B</span>
+                    </div>
+                </div>
+                <i class="fas fa-memory" style="color: var(--border-color); font-size: 1.5rem;"></i>
             </div>
+            <div class="chart-container"><canvas id="memChart"></canvas></div>
         </div>
-    </div>
+    </main>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        // 1. Csatlakozás a Backendhez
+        Chart.defaults.color = '#64748b';
+        Chart.defaults.borderColor = '#334155';
+        
+        function formatBytesToMB(bytes) { return (bytes / (1024 * 1024)).toFixed(0); }// 2 tizedesjegy}
+
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            elements: {
+                point: { radius: 0 } 
+            },
+            scales: {
+                x: { display: false }, 
+                y: {
+                    min: 0,
+                    max: 100,
+                    grid: {
+                        color: 'rgba(51, 65, 85, 0.5)', 
+                        borderDash: [5, 5]
+                    },
+                    ticks: {
+                        callback: function(value) { return value + '%' }
+                    }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: '#1e293b',
+                    titleColor: '#f1f5f9',
+                    bodyColor: '#94a3b8',
+                    borderColor: '#334155',
+                    borderWidth: 1
+                }
+            }
+        };
+
+        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+        const cpuGradient = cpuCtx.createLinearGradient(0, 0, 0, 400);
+        cpuGradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
+        cpuGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+
+        const cpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                labels: Array(30).fill(''),
+                datasets: [{
+                    data: Array(30).fill(0),
+                    borderColor: '#ef4444',
+                    backgroundColor: cpuGradient,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: commonOptions
+        });
+
+        const memCtx = document.getElementById('memChart').getContext('2d');
+        const memGradient = memCtx.createLinearGradient(0, 0, 0, 400);
+        memGradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
+        memGradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+
+        const memChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: Array(30).fill(''),
+                datasets: [{
+                    data: Array(30).fill(0),
+                    borderColor: '#3b82f6',
+                    backgroundColor: memGradient,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: commonOptions
+        });
+
         const socket = io({
             path: '/socket.io/',
             transports: ['websocket', 'polling'],
             reconnection: true,
-            reconnectionAttempts: 10
+            reconnectionAttempts: 20
         });
 
-        // 2. Chart inicializálás (CPU)
-        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
-        const cpuChart = new Chart(cpuCtx, {
-            type: 'line',
-            data: {
-                labels: Array(20).fill(''),
-                datasets: [{
-                    label: 'CPU %',
-                    data: Array(20).fill(0),
-                    borderColor: '#ef4444',
-                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                scales: { y: { min: 0, max: 100 } },
-                plugins: { legend: { display: false } }
-            }
+        const statusLabel = document.getElementById('connectionStatus');
+        const statusDot = document.querySelector('.status-indicator');
+
+        socket.on('connect', () => {
+            statusLabel.textContent = "Live Connection";
+            statusLabel.style.color = "#10b981";
+            statusDot.style.backgroundColor = "#10b981";
+            statusDot.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.4)";
         });
 
-        // 3. Chart inicializálás (Memória)
-        const memCtx = document.getElementById('memChart').getContext('2d');
-        const memChart = new Chart(memCtx, {
-            type: 'line',
-            data: {
-                labels: Array(20).fill(''),
-                datasets: [{
-                    label: 'RAM %',
-                    data: Array(20).fill(0),
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                scales: { y: { min: 0, max: 100 } },
-                plugins: { legend: { display: false } }
-            }
+        socket.on('disconnect', () => {
+            statusLabel.textContent = "Offline (Reconnecting...)";
+            statusLabel.style.color = "#ef4444";
+            statusDot.style.backgroundColor = "#ef4444";
+            statusDot.style.boxShadow = "none";
         });
 
-        // --- ADATOK FOGADÁSA ---
-        
-        // Kezdeti infó
         socket.on('init info', (data) => {
-            if(data && data.hostname) {
-                document.getElementById('podName').textContent = data.hostname;
-            }
+            if(data && data.hostname) updatePodInfo(data.hostname);
         });
 
-        // Folyamatos frissítés
         socket.on('stats update', (data) => {
-            // Pod név
-            document.getElementById('podName').textContent = data.hostname;
-
-            // CPU
-            document.getElementById('cpuValue').textContent = data.cpu + '%';
-            const cpuData = cpuChart.data.datasets[0].data;
-            cpuData.shift();
-            cpuData.push(data.cpu);
-            cpuChart.update();
-
-            // Memória
-            document.getElementById('memValue').textContent = data.mem + '%';
-            const memData = memChart.data.datasets[0].data;
-            memData.shift();
-            memData.push(data.mem);
-            memChart.update();
+            updatePodInfo(data.hostname);
+        
+            const usedMB = formatBytesToMB(data.memUsed);
+            const totalMB = formatBytesToMB(data.memTotal);
+            document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`;
+            
+            updateChart(cpuChart, data.cpu, 'cpuValue');
+            updateChart(memChart, data.mem, 'memValue');
         });
 
-        // --- Vezérlés (Normal / Stress) ---
+        function updatePodInfo(name) {
+            document.getElementById('podName').textContent = name;
+        }
+
+        function updateChart(chart, value, valueElementId) {
+            document.getElementById(valueElementId).innerHTML = `${value}<span class="unit">%</span>`;
+            
+            const data = chart.data.datasets[0].data;
+            data.shift();
+            data.push(value);
+            chart.update();
+        }
+
         function setMode(mode) {
             let password = null;
             if (mode === 'stress') {
-                password = prompt("Jelszó a terheléshez:");
+                password = prompt("Enter admin password for stress test:");
                 if (!password) return;
             }
             socket.emit('change mode', { mode, password });
         }
-        
-        socket.on('auth error', (msg) => alert("⛔ " + msg));
+
+        socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
+
     </script>
 </body>
 </html>
