@@ -17,28 +17,17 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
-// --- SEGÉDFÜGGVÉNY: CPU IDŐK LEKÉRÉSE ---
-// Ez összegzi az összes mag (core) idejét
-function getCpuInfo() {
-    const cpus = os.cpus();
-    let idle = 0;
-    let total = 0;
+// --- SEGÉDFÜGGVÉNY: CPU HASZNÁLAT SZÁMÍTÁSA ---
+let startUsage = process.cpuUsage();
+let startTime = process.hrtime.bigint();
 
-    for (const cpu of cpus) {
-        for (const type in cpu.times) {
-            total += cpu.times[type];
-        }
-        idle += cpu.times.idle;
-    }
-    return { idle, total };
-}
-
-// Kezdeti mérés
-let startMeasure = getCpuInfo();
 let currentMode = 'normal';
-let memoryHog = []; // Ez fogja enni a RAM-ot
+let memoryHog = [];
 
 io.on('connection', (socket) => {
+    // Azonnal elküldjük a pod nevét csatlakozáskor is
+    socket.emit('init info', { hostname: os.hostname() });
+
     socket.on('change mode', (data) => {
         if (data.mode === 'stress') {
             if (data.password === ADMIN_PASSWORD) {
@@ -48,19 +37,14 @@ io.on('connection', (socket) => {
             }
         } else {
             currentMode = 'normal';
-            memoryHog = []; // Felszabadítjuk a RAM-ot
+            memoryHog = [];
             if (global.gc) { global.gc(); }
         }
     });
 });
 
-// --- TERHELÉS GENERÁTOR (Stressz módhoz) ---
-// Ez azért kell, hogy legyen mit mérni. Ha nem fut semmi, a CPU 0% lesz.
 function generateLoad() {
-    // 1. CPU Égetés: Nehéz matematika
     crypto.pbkdf2Sync('titkos', 'só', 1000, 64, 'sha512');
-    
-    // 2. RAM Égetés: Nagy tömbök
     if (currentMode === 'stress') {
         memoryHog.push(new Array(50000).join('A')); 
     }
@@ -69,43 +53,39 @@ function generateLoad() {
 // --- FŐ MÉRŐ CIKLUS (1 másodpercenként) ---
 setInterval(() => {
     
-    // Ha be van kapcsolva a stressz, dolgoztatjuk a gépet
     if (currentMode === 'stress') {
-        // Csinálunk egy kis mesterséges terhelést, hogy megugorjon a grafikon
-        // De a mérés VALÓS lesz!
-        const start = Date.now();
-        while (Date.now() - start < 500) { // 500ms-ig folyamatosan dolgozik
+        const startLoop = Date.now();
+        while (Date.now() - startLoop < 500) { 
             generateLoad();
         }
     }
 
-    // --- 1. VALÓS CPU SZÁMÍTÁS (Delta módszer) ---
-    const endMeasure = getCpuInfo();
+    // --- 1. VALÓS CPU MÉRÉS (Process Level) ---
+    const endUsage = process.cpuUsage(startUsage);
+    const endTime = process.hrtime.bigint();
     
-    // Kiszámoljuk a különbséget az előző mérés óta
-    const idleDifference = endMeasure.idle - startMeasure.idle;
-    const totalDifference = endMeasure.total - startMeasure.total;
+    const elapsedNs = Number(endTime - startTime);
+    const cpuNs = (endUsage.user + endUsage.system) * 1000;
+    let cpuPercentage = (cpuNs / elapsedNs) * 100;
     
-    // A százalék: (Összes - Üresjárat) / Összes
-    const cpuPercentage = 100 - Math.floor((100 * idleDifference) / totalDifference);
-    
-    // Frissítjük a kezdőértéket a következő körre
-    startMeasure = endMeasure;
+    startUsage = process.cpuUsage();
+    startTime = process.hrtime.bigint();
 
-    // --- 2. VALÓS MEMÓRIA MÉRÉS ---
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const usedMem = totalMem - freeMem; // Node.js-en ez a teljes rendszer memóriája
-    const memPercentage = Math.floor((usedMem / totalMem) * 100);
+    // --- 2. VALÓS MEMÓRIA MÉRÉS (Process Level) ---
+    const memUsage = process.memoryUsage();
+    const totalSystemMem = os.totalmem();
+    const usedMemBytes = memUsage.rss;
+    const memPercentage = (usedMemBytes / totalSystemMem) * 100;
 
     // Adatok küldése
     io.emit('stats update', {
-        cpu: cpuPercentage,
-        mem: memPercentage
+        cpu: cpuPercentage.toFixed(1),
+        mem: memPercentage.toFixed(2),
+        hostname: os.hostname() // <--- ITT A VISSZATÉRŐ VENDÉG!
     });
 
 }, 1000);
 
 server.listen(PORT, () => {
-    console.log(`🚀 System Monitor running on ${PORT}`);
+    console.log(`🚀 Precision Monitor running on ${PORT}`);
 });

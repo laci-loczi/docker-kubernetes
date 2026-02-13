@@ -9,12 +9,16 @@
         body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px; color: #1f2937; }
         
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        
+        /* ÚJ: Pod név stílusa */
+        .pod-info { font-size: 0.9rem; color: #6b7280; margin-top: 5px; }
+        .pod-id { font-weight: bold; color: #4b5563; font-family: monospace; background: #e5e7eb; padding: 2px 6px; border-radius: 4px; }
+
         .controls { display: flex; gap: 10px; }
         button { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; color: white; }
         .btn-stress { background-color: #ef4444; }
         .btn-normal { background-color: #10b981; }
         
-        /* Grid layout a két grafikonnak */
         .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: 80vh; }
         
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
@@ -27,7 +31,10 @@
 <body>
 
     <div class="header">
-        <h1>🔥 Kubernetes Real-Time Monitor</h1>
+        <div>
+            <h1 style="margin: 0;">🔥 Kubernetes Real-Time Monitor</h1>
+            <div class="pod-info">Kiszolgáló Pod: <span id="podName" class="pod-id">Csatlakozás...</span></div>
+        </div>
         <div class="controls">
             <button class="btn-normal" onclick="setMode('normal')">🟢 Normál</button>
             <button class="btn-stress" onclick="setMode('stress')">🔴 Hardcore Terhelés</button>
@@ -38,7 +45,7 @@
         
         <div class="card">
             <h2>
-                CPU Használat (Összes Mag)
+                CPU Használat
                 <span id="cpuValue" class="stat-big" style="color: #ef4444;">0%</span>
             </h2>
             <div class="chart-box">
@@ -61,7 +68,7 @@
     <script>
         const socket = io();
 
-        // --- CPU Chart Beállítása (PIROS) ---
+        // --- CPU Chart ---
         const cpuCtx = document.getElementById('cpuChart').getContext('2d');
         const cpuChart = new Chart(cpuCtx, {
             type: 'line',
@@ -81,12 +88,12 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
-                scales: { y: { min: 0, max: 100 } }, // CPU mindig 0-100%
+                scales: { y: { min: 0, max: 100 } },
                 plugins: { legend: { display: false } }
             }
         });
 
-        // --- MEMÓRIA Chart Beállítása (KÉK) ---
+        // --- Memória Chart ---
         const memCtx = document.getElementById('memChart').getContext('2d');
         const memChart = new Chart(memCtx, {
             type: 'line',
@@ -106,21 +113,31 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
-                scales: { y: { min: 0, max: 100 } }, // RAM is 0-100%
+                scales: { y: { min: 0, max: 100 } },
                 plugins: { legend: { display: false } }
             }
         });
 
         // --- ADATOK FOGADÁSA ---
+        
+        // 1. Kezdeti infó (hogy ne kelljen várni az első mérésig)
+        socket.on('init info', (data) => {
+            document.getElementById('podName').textContent = data.hostname;
+        });
+
+        // 2. Folyamatos frissítés
         socket.on('stats update', (data) => {
-            // 1. CPU Frissítés
+            // Pod név frissítése (ha esetleg újraindulna és változna)
+            document.getElementById('podName').textContent = data.hostname;
+
+            // CPU
             document.getElementById('cpuValue').textContent = data.cpu + '%';
             const cpuData = cpuChart.data.datasets[0].data;
             cpuData.shift();
             cpuData.push(data.cpu);
             cpuChart.update();
 
-            // 2. Memória Frissítés
+            // Memória
             document.getElementById('memValue').textContent = data.mem + '%';
             const memData = memChart.data.datasets[0].data;
             memData.shift();
@@ -128,7 +145,7 @@
             memChart.update();
         });
 
-        // --- VEZÉRLÉS ---
+        // --- Vezérlés ---
         function setMode(mode) {
             let password = null;
             if (mode === 'stress') {
