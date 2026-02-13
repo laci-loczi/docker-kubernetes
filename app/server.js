@@ -25,24 +25,36 @@ let currentMode = 'normal';
 io.on('connection', (socket) => {
     // ...
     socket.on('change mode', (data) => {
+        
+        // 1. ESET: STRESS MÓD (Jelszót kér)
         if (data.mode === 'stress') {
             
-            // BIZTONSÁGI ELLENŐRZÉS
+            // Biztonsági ellenőrzés: Van-e beállítva jelszó?
             if (!ADMIN_PASSWORD) {
                 console.log("HIBA: Nincs beállítva admin jelszó a szerveren!");
                 socket.emit('auth error', 'Szerver konfigurációs hiba (nincs jelszó)!');
                 return;
             }
 
+            // Jelszó ellenőrzés
             if (data.password === ADMIN_PASSWORD) {
-                 // ... (engedélyezés, ahogy eddig)
                  currentMode = 'stress';
+                 console.log("⚠️ Módváltás: STRESS");
                  io.emit('mode update', currentMode);
             } else {
                  socket.emit('auth error', 'Hibás jelszó!');
             }
         } 
-        // ...
+        
+        // 2. ESET: NORMAL MÓD (Ide hiányzott a kód!)
+        // Ha nem 'stress' a parancs, akkor feltételezzük, hogy 'normal'
+        else if (data.mode === 'normal') {
+            currentMode = 'normal';
+            console.log("✅ Módváltás: NORMAL");
+            
+            // Értesítünk mindenkit, hogy vége a riadónak
+            io.emit('mode update', currentMode);
+        }
     });
 });
 
