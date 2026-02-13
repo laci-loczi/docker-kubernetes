@@ -81,6 +81,8 @@ setInterval(() => {
     io.emit('stats update', {
         cpu: cpuPercentage.toFixed(1),
         mem: memPercentage.toFixed(2),
+        memUsed: usedMemBytes, 
+        memTotal: totalSystemMem,
         hostname: os.hostname() 
     });
 
