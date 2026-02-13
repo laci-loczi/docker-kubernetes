@@ -2,71 +2,57 @@
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
-    <title>Node.js Traffic Control</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <title>Real-Time System Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root {
-            --bg-color: #f3f4f6;
-            --card-bg: #ffffff;
-            --primary-color: #2563eb;
-            --danger-color: #ef4444;
-            --success-color: #10b981;
-            --text-main: #111827;
-        }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 40px; display: flex; justify-content: center; height: 100vh; box-sizing: border-box; }
-        .container { display: grid; grid-template-columns: 300px 1fr; gap: 24px; max-width: 1400px; width: 100%; height: 85vh; }
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px; color: #1f2937; }
         
-        .card { background: var(--card-bg); border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); padding: 24px; display: flex; flex-direction: column; border: 1px solid #e5e7eb; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .controls { display: flex; gap: 10px; }
+        button { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; color: white; }
+        .btn-stress { background-color: #ef4444; }
+        .btn-normal { background-color: #10b981; }
         
-        h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; color: #374151; display: flex; justify-content: space-between; align-items: center; }
-        .badge { background: #d1fae5; color: var(--success-color); padding: 4px 8px; border-radius: 99px; font-size: 11px; }
-
-        /* Bal oldal */
-        .stat-box { margin-bottom: 15px; padding: 15px; background: #f9fafb; border-radius: 8px; border-left: 4px solid var(--primary-color); }
-        .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; }
-        .stat-value { font-size: 24px; font-weight: 700; color: #111827; }
-
-        /* Jobb oldal (Grafikon) */
-        .chart-container { flex-grow: 1; position: relative; width: 100%; }
+        /* Grid layout a két grafikonnak */
+        .dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: 80vh; }
         
-        .controls { display: flex; gap: 10px; margin-top: 20px; }
-        button { flex: 1; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
-        .btn-normal { background: var(--success-color); color: white; }
-        .btn-stress { background: var(--danger-color); color: white; }
-        button:hover { opacity: 0.9; transform: translateY(-1px); }
-        button:active { transform: translateY(0); }
-
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        h2 { margin: 0 0 10px 0; font-size: 1.2rem; display: flex; justify-content: space-between; }
+        
+        .chart-box { flex-grow: 1; position: relative; }
+        .stat-big { font-size: 2rem; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div class="container">
+    <div class="header">
+        <h1>🔥 Kubernetes Real-Time Monitor</h1>
+        <div class="controls">
+            <button class="btn-normal" onclick="setMode('normal')">🟢 Normál</button>
+            <button class="btn-stress" onclick="setMode('stress')">🔴 Hardcore Terhelés</button>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        
         <div class="card">
-            <h2>Node.js Backend <span class="badge">ONLINE</span></h2>
-            
-            <div class="stat-box">
-                <div class="stat-label">Pod Hostname</div>
-                <div class="stat-value" id="hostname">...</div>
-            </div>
-            <div class="stat-box" style="border-color: #8b5cf6;">
-                <div class="stat-label">Request / Sec</div>
-                <div class="stat-value" id="rps">0</div>
-            </div>
-            <div class="stat-box" style="border-color: #ef4444;">
-                <div class="stat-label">Server Load</div>
-                <div class="stat-value" id="load">0%</div>
+            <h2>
+                CPU Használat (Összes Mag)
+                <span id="cpuValue" class="stat-big" style="color: #ef4444;">0%</span>
+            </h2>
+            <div class="chart-box">
+                <canvas id="cpuChart"></canvas>
             </div>
         </div>
 
         <div class="card">
-            <h2>Élő Forgalom Monitorozás (Live Traffic)</h2>
-            <div class="chart-container">
-                <canvas id="trafficChart"></canvas>
-            </div>
-            <div class="controls">
-                <button class="btn-normal" onclick="setMode('normal')">🟢 Normál Üzemmód</button>
-                <button class="btn-stress" onclick="setMode('stress')">🔴 DDoS Szimuláció (High Load)</button>
+            <h2>
+                Memória Használat
+                <span id="memValue" class="stat-big" style="color: #3b82f6;">0%</span>
+            </h2>
+            <div class="chart-box">
+                <canvas id="memChart"></canvas>
             </div>
         </div>
     </div>
@@ -74,77 +60,85 @@
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        
-        // --- 1. Chart.js Konfiguráció (DINAMIKUS SKÁLÁZÁS) ---
-        const ctx = document.getElementById('trafficChart').getContext('2d');
-        const trafficChart = new Chart(ctx, {
+
+        // --- CPU Chart Beállítása (PIROS) ---
+        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+        const cpuChart = new Chart(cpuCtx, {
             type: 'line',
             data: {
-                labels: Array(20).fill(''), 
+                labels: Array(20).fill(''),
                 datasets: [{
-                    label: 'Feldolgozott Műveletek (Ops/sec)', // Átneveztem, mert pontosabb
+                    label: 'CPU %',
                     data: Array(20).fill(0),
-                    borderColor: '#2563eb',
-                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
                     borderWidth: 2,
-                    tension: 0.3,
-                    fill: true
+                    fill: true,
+                    tension: 0.3
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: { duration: 0 }, 
-                scales: {
-                    y: { 
-                        beginAtZero: true 
-                        // TÖRÖLTÜK a 'max: 100'-at! Így a grafikon szabadon nőhet.
-                    }
-                }
+                animation: false,
+                scales: { y: { min: 0, max: 100 } }, // CPU mindig 0-100%
+                plugins: { legend: { display: false } }
             }
         });
 
-        // --- 2. Socket.io Kezelés ---
-        
+        // --- MEMÓRIA Chart Beállítása (KÉK) ---
+        const memCtx = document.getElementById('memChart').getContext('2d');
+        const memChart = new Chart(memCtx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [{
+                    label: 'RAM %',
+                    data: Array(20).fill(0),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: { y: { min: 0, max: 100 } }, // RAM is 0-100%
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // --- ADATOK FOGADÁSA ---
+        socket.on('stats update', (data) => {
+            // 1. CPU Frissítés
+            document.getElementById('cpuValue').textContent = data.cpu + '%';
+            const cpuData = cpuChart.data.datasets[0].data;
+            cpuData.shift();
+            cpuData.push(data.cpu);
+            cpuChart.update();
+
+            // 2. Memória Frissítés
+            document.getElementById('memValue').textContent = data.mem + '%';
+            const memData = memChart.data.datasets[0].data;
+            memData.shift();
+            memData.push(data.mem);
+            memChart.update();
+        });
+
+        // --- VEZÉRLÉS ---
         function setMode(mode) {
             let password = null;
             if (mode === 'stress') {
-                password = prompt("🔒 Kérlek add meg az admin jelszót:");
-                if (password === null) return; 
+                password = prompt("Jelszó a terheléshez:");
+                if (!password) return;
             }
-            socket.emit('change mode', { mode: mode, password: password });
+            socket.emit('change mode', { mode, password });
         }
-
-        socket.on('auth error', (errorMessage) => {
-            alert("⛔ " + errorMessage);
-        });
-
-        socket.on('mode update', (newMode) => {
-            console.log("Üzemmód váltás: " + newMode);
-        });
-
-        // --- 3. ADATOK FOGADÁSA (REAL TIME) ---
-        socket.on('dashboard update', (data) => {
-            document.getElementById('hostname').textContent = data.hostname;
-            document.getElementById('rps').textContent = data.rps;
-            document.getElementById('load').textContent = data.load + '%';
-
-            // Grafikon frissítése
-            const chartData = trafficChart.data.datasets[0].data;
-            chartData.shift();
-            chartData.push(data.rps);
-            
-            // Színváltás terhelés alatt
-            if (data.load > 80) { // Ha a memória/CPU 80% felett van
-                trafficChart.data.datasets[0].borderColor = '#ef4444';
-                trafficChart.data.datasets[0].backgroundColor = 'rgba(239, 68, 68, 0.2)';
-            } else {
-                trafficChart.data.datasets[0].borderColor = '#2563eb';
-                trafficChart.data.datasets[0].backgroundColor = 'rgba(37, 99, 235, 0.1)';
-            }
-            
-            trafficChart.update();
-        });
+        
+        socket.on('auth error', (msg) => alert("⛔ " + msg));
     </script>
 </body>
 </html>

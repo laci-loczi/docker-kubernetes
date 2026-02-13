@@ -4,7 +4,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const os = require('os');
-const crypto = require('crypto'); 
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,85 +13,99 @@ const PORT = 3000;
 
 app.use(express.static('public'));
 
-// --- VALÓS FORGALOM SZÁMLÁLÓ ---
-let requestCounter = 0;
-
-// Ez a Middleware minden bejövő kérésnél lefut (kép, html, bármi)
-app.use((req, res, next) => {
-    requestCounter++; 
-    next();
-});
-
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
+// --- SEGÉDFÜGGVÉNY: CPU IDŐK LEKÉRÉSE ---
+// Ez összegzi az összes mag (core) idejét
+function getCpuInfo() {
+    const cpus = os.cpus();
+    let idle = 0;
+    let total = 0;
+
+    for (const cpu of cpus) {
+        for (const type in cpu.times) {
+            total += cpu.times[type];
+        }
+        idle += cpu.times.idle;
+    }
+    return { idle, total };
+}
+
+// Kezdeti mérés
+let startMeasure = getCpuInfo();
 let currentMode = 'normal';
+let memoryHog = []; // Ez fogja enni a RAM-ot
 
 io.on('connection', (socket) => {
-    // Kezdeti állapot küldése
-    socket.emit('mode update', currentMode);
-
     socket.on('change mode', (data) => {
         if (data.mode === 'stress') {
-            if (!ADMIN_PASSWORD) {
-                socket.emit('auth error', 'Nincs jelszó beállítva a szerveren!');
-                return;
-            }
             if (data.password === ADMIN_PASSWORD) {
-                 currentMode = 'stress';
-                 io.emit('mode update', currentMode);
+                currentMode = 'stress';
             } else {
-                 socket.emit('auth error', 'Hibás jelszó!');
+                socket.emit('auth error', 'Hibás jelszó!');
             }
-        } 
-        else if (data.mode === 'normal') {
+        } else {
             currentMode = 'normal';
-            io.emit('mode update', currentMode);
+            memoryHog = []; // Felszabadítjuk a RAM-ot
+            if (global.gc) { global.gc(); }
         }
     });
 });
 
-// --- A "NEHÉZ MUNKA" FÜGGVÉNY ---
-function performHeavyTask() {
-    // Egyetlen nehéz titkosítási művelet
-    crypto.createHash('sha256').update('titkosadat' + Math.random()).digest('hex');
+// --- TERHELÉS GENERÁTOR (Stressz módhoz) ---
+// Ez azért kell, hogy legyen mit mérni. Ha nem fut semmi, a CPU 0% lesz.
+function generateLoad() {
+    // 1. CPU Égetés: Nehéz matematika
+    crypto.pbkdf2Sync('titkos', 'só', 1000, 64, 'sha512');
+    
+    // 2. RAM Égetés: Nagy tömbök
+    if (currentMode === 'stress') {
+        memoryHog.push(new Array(50000).join('A')); 
+    }
 }
 
-// --- FŐ CIKLUS (1 másodpercenként) ---
+// --- FŐ MÉRŐ CIKLUS (1 másodpercenként) ---
 setInterval(() => {
     
-    // 1. Ha STRESSZ mód van, generálunk belső terhelést
+    // Ha be van kapcsolva a stressz, dolgoztatjuk a gépet
     if (currentMode === 'stress') {
-        // Lefuttatunk 500 nehéz műveletet
-        // Ezt hozzáadjuk a számlálóhoz, mert ez VALÓS munka a szervernek
-        for (let i = 0; i < 500; i++) {
-            performHeavyTask();
-            requestCounter++; 
+        // Csinálunk egy kis mesterséges terhelést, hogy megugorjon a grafikon
+        // De a mérés VALÓS lesz!
+        const start = Date.now();
+        while (Date.now() - start < 500) { // 500ms-ig folyamatosan dolgozik
+            generateLoad();
         }
     }
 
-    // 2. VALÓS RENDSZERTERHELÉS MÉRÉSE (Memória)
-    // Nincs több random szám! Ez a gép tényleges állapota.
+    // --- 1. VALÓS CPU SZÁMÍTÁS (Delta módszer) ---
+    const endMeasure = getCpuInfo();
+    
+    // Kiszámoljuk a különbséget az előző mérés óta
+    const idleDifference = endMeasure.idle - startMeasure.idle;
+    const totalDifference = endMeasure.total - startMeasure.total;
+    
+    // A százalék: (Összes - Üresjárat) / Összes
+    const cpuPercentage = 100 - Math.floor((100 * idleDifference) / totalDifference);
+    
+    // Frissítjük a kezdőértéket a következő körre
+    startMeasure = endMeasure;
+
+    // --- 2. VALÓS MEMÓRIA MÉRÉS ---
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
-    const usedMem = totalMem - freeMem;
-    const realLoadPercentage = Math.round((usedMem / totalMem) * 100);
+    const usedMem = totalMem - freeMem; // Node.js-en ez a teljes rendszer memóriája
+    const memPercentage = Math.floor((usedMem / totalMem) * 100);
 
-    // 3. ADATCSOMAG ÖSSZEÁLLÍTÁSA
-    const data = {
-        hostname: os.hostname(),
-        rps: requestCounter, // Ez a pontos szám (Külső kérés + Belső munka)
-        load: realLoadPercentage, 
-    };
-
-    io.emit('dashboard update', data);
-
-    // 4. SZÁMLÁLÓ NULLÁZÁSA a következő másodpercre
-    requestCounter = 0;
+    // Adatok küldése
+    io.emit('stats update', {
+        cpu: cpuPercentage,
+        mem: memPercentage
+    });
 
 }, 1000);
 
 server.listen(PORT, () => {
-    console.log(`🚀 Real Data Server running on ${PORT}`);
+    console.log(`🚀 System Monitor running on ${PORT}`);
 });
