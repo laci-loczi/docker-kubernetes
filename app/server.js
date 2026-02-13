@@ -1,3 +1,5 @@
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -17,12 +19,34 @@ app.get('/', (req, res) => {
 
 let currentMode = 'normal';
 
+
+// Ezt a jelszót csak te tudod (a környezeti változóból még profibb lenne, de most jó így)
+
 io.on('connection', (socket) => {
-    socket.on('change mode', (mode) => {
-        currentMode = mode;
-        console.log(`Üzemmód váltás: ${mode}`);
+    // ...
+    socket.on('change mode', (data) => {
+        if (data.mode === 'stress') {
+            
+            // BIZTONSÁGI ELLENŐRZÉS
+            if (!ADMIN_PASSWORD) {
+                console.log("HIBA: Nincs beállítva admin jelszó a szerveren!");
+                socket.emit('auth error', 'Szerver konfigurációs hiba (nincs jelszó)!');
+                return;
+            }
+
+            if (data.password === ADMIN_PASSWORD) {
+                 // ... (engedélyezés, ahogy eddig)
+                 currentMode = 'stress';
+                 io.emit('mode update', currentMode);
+            } else {
+                 socket.emit('auth error', 'Hibás jelszó!');
+            }
+        } 
+        // ...
     });
 });
+
+// ... (A setInterval és a server.listen marad)
 
 // --- CPU ÉGETŐ FÜGGVÉNY ---
 function stressCPU() {

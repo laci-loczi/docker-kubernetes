@@ -104,9 +104,41 @@
         // --- 2. Socket.io Kezelés ---
         
         // Gombnyomás küldése a szervernek
-        function setMode(mode) {
-            socket.emit('change mode', mode);
+        // ... (Chart konfiguráció marad)
+
+    // --- 2. Socket.io Kezelés ---
+    
+    // Gombnyomás kezelése
+    function setMode(mode) {
+        let password = null;
+
+        // Csak a 'stress' módhoz kérünk jelszót
+        if (mode === 'stress') {
+            password = prompt("🔒 Kérlek add meg az admin jelszót a terhelés indításához:");
+            // Ha a felhasználó a Mégse gombra nyom, nem küldünk semmit
+            if (password === null) return; 
         }
+
+        // Elküldjük a módot ÉS a jelszót is objektumként
+        socket.emit('change mode', { mode: mode, password: password });
+    }
+
+    // Adatok fogadása (dashboard update) ... (ez marad a régi)
+
+    // ÚJ: Hibaüzenet kezelése, ha rossz a jelszó
+    socket.on('auth error', (errorMessage) => {
+        alert("⛔ " + errorMessage); // Felugró ablak a hibával
+    });
+
+    // ÚJ: Visszajelzés módváltásról (hogy a gombok állapota frissüljön)
+    socket.on('mode update', (newMode) => {
+        if (newMode === 'stress') {
+             // Opcionális: Itt átállíthatnád a gombok színét, vagy kiírhatnád, hogy "FUT"
+             console.log("A rendszer most STRESSZ módban van.");
+        } else {
+             console.log("A rendszer NORMÁL módban van.");
+        }
+    });
 
         // Adatok fogadása a szervertől (másodpercenként többször is jöhet)
         socket.on('dashboard update', (data) => {
