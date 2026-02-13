@@ -66,44 +66,15 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // CloudFront + Ngrok kompatibilis csatlakozás
+        // 1. Csatlakozás a Backendhez
         const socket = io({
             path: '/socket.io/',
-            transports: ['websocket', 'polling'], // Mindkét módszert engedjük
-            reconnection: true,             // Ha megszakad, próbálkozzon újra
+            transports: ['websocket', 'polling'],
+            reconnection: true,
             reconnectionAttempts: 10
         });
 
-            // 3. A Gomb vezérlése (DOM elem megkeresése)
-        const btn = document.getElementById('tunnelButton');
-        const dot = btn.querySelector('.dot');
-
-    
-        socket.on('connect', () => {
-            console.log("✅ Kapcsolat létrejött!");
-            btn.classList.remove('offline');
-            btn.classList.add('online');
-            btn.href = BACKEND_URL; // Most már kattintható a link
-            btn.innerHTML = '<span class="dot">🟢</span> System Online';
-        });
-
-        // HA MEGSZAKADT VAGY HIBA VAN (Gép kikapcsolva)
-        socket.on('disconnect', () => {
-            setOffline();
-        });
-
-        socket.on('connect_error', () => {
-            setOffline();
-        });
-
-        function setOffline() {
-            console.log("❌ Kapcsolat megszakadt...");
-            btn.classList.remove('online');
-            btn.classList.add('offline');
-            btn.href = "#"; // Kivesszük a linket
-            btn.innerHTML = '<span class="dot">🔴</span> Offline (Connecting...)';
-        }
-        // --- CPU Chart ---
+        // 2. Chart inicializálás (CPU)
         const cpuCtx = document.getElementById('cpuChart').getContext('2d');
         const cpuChart = new Chart(cpuCtx, {
             type: 'line',
@@ -128,7 +99,7 @@
             }
         });
 
-        // --- Memória Chart ---
+        // 3. Chart inicializálás (Memória)
         const memCtx = document.getElementById('memChart').getContext('2d');
         const memChart = new Chart(memCtx, {
             type: 'line',
@@ -155,14 +126,16 @@
 
         // --- ADATOK FOGADÁSA ---
         
-        // 1. Kezdeti infó (hogy ne kelljen várni az első mérésig)
+        // Kezdeti infó
         socket.on('init info', (data) => {
-            document.getElementById('podName').textContent = data.hostname;
+            if(data && data.hostname) {
+                document.getElementById('podName').textContent = data.hostname;
+            }
         });
 
-        // 2. Folyamatos frissítés
+        // Folyamatos frissítés
         socket.on('stats update', (data) => {
-            // Pod név frissítése (ha esetleg újraindulna és változna)
+            // Pod név
             document.getElementById('podName').textContent = data.hostname;
 
             // CPU
@@ -180,7 +153,7 @@
             memChart.update();
         });
 
-        // --- Vezérlés ---
+        // --- Vezérlés (Normal / Stress) ---
         function setMode(mode) {
             let password = null;
             if (mode === 'stress') {
@@ -191,8 +164,6 @@
         }
         
         socket.on('auth error', (msg) => alert("⛔ " + msg));
-
-        
     </script>
 </body>
 </html>
