@@ -75,86 +75,67 @@
     <script>
         const socket = io();
         
-        // --- 1. Chart.js Konfiguráció ---
+        // --- 1. Chart.js Konfiguráció (DINAMIKUS SKÁLÁZÁS) ---
         const ctx = document.getElementById('trafficChart').getContext('2d');
         const trafficChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: Array(20).fill(''), // 20 adatpont az X tengelyen
+                labels: Array(20).fill(''), 
                 datasets: [{
-                    label: 'Bejövő Kérések (Req/s)',
+                    label: 'Feldolgozott Műveletek (Ops/sec)', // Átneveztem, mert pontosabb
                     data: Array(20).fill(0),
                     borderColor: '#2563eb',
                     backgroundColor: 'rgba(37, 99, 235, 0.1)',
                     borderWidth: 2,
-                    tension: 0.4, // Ettől lesz szép görbe a vonal
+                    tension: 0.3,
                     fill: true
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: { duration: 0 }, // Kikapcsoljuk az animációt a sima frissítésért
+                animation: { duration: 0 }, 
                 scales: {
-                    y: { beginAtZero: true, max: 100 }
+                    y: { 
+                        beginAtZero: true 
+                        // TÖRÖLTÜK a 'max: 100'-at! Így a grafikon szabadon nőhet.
+                    }
                 }
             }
         });
 
         // --- 2. Socket.io Kezelés ---
         
-        // Gombnyomás küldése a szervernek
-        // ... (Chart konfiguráció marad)
-
-    // --- 2. Socket.io Kezelés ---
-    
-    // Gombnyomás kezelése
-    function setMode(mode) {
-        let password = null;
-
-        // Csak a 'stress' módhoz kérünk jelszót
-        if (mode === 'stress') {
-            password = prompt("🔒 Kérlek add meg az admin jelszót a terhelés indításához:");
-            // Ha a felhasználó a Mégse gombra nyom, nem küldünk semmit
-            if (password === null) return; 
+        function setMode(mode) {
+            let password = null;
+            if (mode === 'stress') {
+                password = prompt("🔒 Kérlek add meg az admin jelszót:");
+                if (password === null) return; 
+            }
+            socket.emit('change mode', { mode: mode, password: password });
         }
 
-        // Elküldjük a módot ÉS a jelszót is objektumként
-        socket.emit('change mode', { mode: mode, password: password });
-    }
+        socket.on('auth error', (errorMessage) => {
+            alert("⛔ " + errorMessage);
+        });
 
-    // Adatok fogadása (dashboard update) ... (ez marad a régi)
+        socket.on('mode update', (newMode) => {
+            console.log("Üzemmód váltás: " + newMode);
+        });
 
-    // ÚJ: Hibaüzenet kezelése, ha rossz a jelszó
-    socket.on('auth error', (errorMessage) => {
-        alert("⛔ " + errorMessage); // Felugró ablak a hibával
-    });
-
-    // ÚJ: Visszajelzés módváltásról (hogy a gombok állapota frissüljön)
-    socket.on('mode update', (newMode) => {
-        if (newMode === 'stress') {
-             // Opcionális: Itt átállíthatnád a gombok színét, vagy kiírhatnád, hogy "FUT"
-             console.log("A rendszer most STRESSZ módban van.");
-        } else {
-             console.log("A rendszer NORMÁL módban van.");
-        }
-    });
-
-        // Adatok fogadása a szervertől (másodpercenként többször is jöhet)
+        // --- 3. ADATOK FOGADÁSA (REAL TIME) ---
         socket.on('dashboard update', (data) => {
-            // Szöveges adatok frissítése
             document.getElementById('hostname').textContent = data.hostname;
             document.getElementById('rps').textContent = data.rps;
             document.getElementById('load').textContent = data.load + '%';
 
-            // Grafikon frissítése (Shift-elés)
-            // Levágjuk az első adatot, és hozzáadjuk az újat a végére
+            // Grafikon frissítése
             const chartData = trafficChart.data.datasets[0].data;
             chartData.shift();
             chartData.push(data.rps);
             
-            // Ha nagy a terhelés, pirosra váltunk
-            if (data.load > 80) {
+            // Színváltás terhelés alatt
+            if (data.load > 80) { // Ha a memória/CPU 80% felett van
                 trafficChart.data.datasets[0].borderColor = '#ef4444';
                 trafficChart.data.datasets[0].backgroundColor = 'rgba(239, 68, 68, 0.2)';
             } else {
