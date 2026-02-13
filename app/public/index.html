@@ -66,7 +66,13 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
+        // CloudFront + Ngrok kompatibilis csatlakozás
+        const socket = io({
+            path: '/socket.io/',
+            transports: ['websocket', 'polling'], // Mindkét módszert engedjük
+            reconnection: true,             // Ha megszakad, próbálkozzon újra
+            reconnectionAttempts: 10
+        });
 
         // --- CPU Chart ---
         const cpuCtx = document.getElementById('cpuChart').getContext('2d');

@@ -1,4 +1,4 @@
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; //stored in secret
 
 const express = require('express');
 const http = require('http');
@@ -17,7 +17,7 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
-// --- SEGÉDFÜGGVÉNY: CPU HASZNÁLAT SZÁMÍTÁSA ---
+// cpu usage 
 let startUsage = process.cpuUsage();
 let startTime = process.hrtime.bigint();
 
@@ -25,7 +25,7 @@ let currentMode = 'normal';
 let memoryHog = [];
 
 io.on('connection', (socket) => {
-    // Azonnal elküldjük a pod nevét csatlakozáskor is
+    // name of the pod
     socket.emit('init info', { hostname: os.hostname() });
 
     socket.on('change mode', (data) => {
@@ -50,7 +50,7 @@ function generateLoad() {
     }
 }
 
-// --- FŐ MÉRŐ CIKLUS (1 másodpercenként) ---
+// updating every 1 second
 setInterval(() => {
     
     if (currentMode === 'stress') {
@@ -60,7 +60,7 @@ setInterval(() => {
         }
     }
 
-    // --- 1. VALÓS CPU MÉRÉS (Process Level) ---
+    // real time cpu usage
     const endUsage = process.cpuUsage(startUsage);
     const endTime = process.hrtime.bigint();
     
@@ -71,17 +71,17 @@ setInterval(() => {
     startUsage = process.cpuUsage();
     startTime = process.hrtime.bigint();
 
-    // --- 2. VALÓS MEMÓRIA MÉRÉS (Process Level) ---
+    // real time memory 
     const memUsage = process.memoryUsage();
     const totalSystemMem = os.totalmem();
     const usedMemBytes = memUsage.rss;
     const memPercentage = (usedMemBytes / totalSystemMem) * 100;
 
-    // Adatok küldése
+    // sending data
     io.emit('stats update', {
         cpu: cpuPercentage.toFixed(1),
         mem: memPercentage.toFixed(2),
-        hostname: os.hostname() // <--- ITT A VISSZATÉRŐ VENDÉG!
+        hostname: os.hostname() 
     });
 
 }, 1000);
