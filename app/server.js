@@ -91,3 +91,40 @@ setInterval(() => {
 server.listen(PORT, () => {
     console.log(`Monitor running on ${PORT}`);
 });
+
+// experiment part
+app.use(express.json({ limit: '10mb' }));
+
+app.post('/api/render', (req, res) => {
+    const { pixels, width, height } = req.body;
+    
+    const chars = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    let asciiHTML = '';
+
+    for (let y = 0; y < height; y+=2) { 
+        for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const r = pixels[index];
+            const g = pixels[index + 1];
+            const b = pixels[index + 2];
+            
+            const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
+            
+            const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
+            const char = chars[charIndex];
+
+            asciiHTML += `<span style="color: rgb(${r}, ${g}, ${b})">${char}</span>`;
+        }
+        asciiHTML += '<br>';
+    }
+
+    if (currentMode === 'stress') {
+        const start = Date.now();
+        while (Date.now() - start < 200) {} 
+    }
+
+    res.json({
+        podName: os.hostname(),
+        html: asciiHTML
+    });
+});

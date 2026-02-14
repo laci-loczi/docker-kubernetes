@@ -198,6 +198,7 @@
 
     <main class="dashboard-grid">
         
+        
         <div class="card">
             <div class="card-header">
                 <div>
@@ -224,6 +225,31 @@
         </div>
     </main>
 
+    <section style="margin-top: 40px; width: 100%;">
+        <div class="card">
+            <div class="card-header" style="margin-bottom: 15px;">
+                <div>
+                    <div class="card-title">Distributed ASCII Render Farm</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px; font-family: monospace;">
+                        Upload an image to see K8s Load Balancing in action.
+                    </div>
+                </div>
+                <i class="fas fa-layer-group" style="color: var(--border-color); font-size: 1.5rem;"></i>
+            </div>
+            
+            <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                <input type="file" id="imageInput" accept="image/*" style="background: var(--bg-color); color: var(--text-main); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
+                <button onclick="startDistributedRender()" style="background: var(--accent-mem); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-play"></i> Start Rendering
+                </button>
+            </div>
+
+            <div id="renderGrid" style="display: grid; gap: 2px; background: #000; padding: 2px; border-radius: 8px; overflow: hidden; font-family: monospace; font-size: 6px; line-height: 6px; white-space: pre; letter-spacing: 1px;">
+                </div>
+            
+            <canvas id="hiddenCanvas" style="display: none;"></canvas>
+        </div>
+    </section>
     <script>
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = '#334155';
@@ -369,6 +395,78 @@
         }
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
+
+        // experiment
+        const GRID_SIZE = 8; 
+
+        async function startDistributedRender() {
+            const fileInput = document.getElementById('imageInput');
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert("Kérlek, válassz ki egy képet először!");
+                return;
+            }
+
+            const img = new Image();
+            img.src = URL.createObjectURL(fileInput.files[0]);
+            
+            img.onload = () => {
+                const canvas = document.getElementById('hiddenCanvas');
+                const ctx = canvas.getContext('2d');
+                
+                canvas.width = 320;
+                canvas.height = 320;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                const renderGrid = document.getElementById('renderGrid');
+                renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
+                renderGrid.innerHTML = ''; 
+
+                const tileW = canvas.width / GRID_SIZE;
+                const tileH = canvas.height / GRID_SIZE;
+
+                for (let row = 0; row < GRID_SIZE; row++) {
+                    for (let col = 0; col < GRID_SIZE; col++) {
+                        
+                        const tileDiv = document.createElement('div');
+                        tileDiv.style.position = 'relative';
+                        tileDiv.style.background = '#0a0a0a';
+                        tileDiv.style.minHeight = '40px';
+                        tileDiv.innerHTML = '<span style="color: #444;">Processing...</span>';
+                        renderGrid.appendChild(tileDiv);
+
+                        const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
+                        
+                        fetch('/api/render', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                width: tileW,
+                                height: tileH,
+                                pixels: Array.from(imgData.data) 
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            tileDiv.innerHTML = data.html;
+                            
+                            const badge = document.createElement('div');
+                            badge.textContent = data.podName;
+                            badge.style.position = 'absolute';
+                            badge.style.top = '0';
+                            badge.style.left = '0';
+                            badge.style.background = 'rgba(16, 185, 129, 0.8)'; 
+                            badge.style.color = '#fff';
+                            badge.style.fontSize = '8px';
+                            badge.style.fontFamily = 'sans-serif';
+                            badge.style.padding = '2px 4px';
+                            badge.style.borderRadius = '0 0 4px 0';
+                            tileDiv.appendChild(badge);
+                        })
+                        .catch(err => tileDiv.innerHTML = '<span style="color: red;">Error</span>');
+                    }
+                }
+            };
+        }
 
     </script>
 </body>
