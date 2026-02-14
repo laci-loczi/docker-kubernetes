@@ -264,40 +264,25 @@
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = '#334155';
         
-        function formatBytesToMB(bytes) { return (bytes / (1024 * 1024)).toFixed(0); }// 2 tizedesjegy}
+        function formatBytesToMB(bytes) { return (bytes / (1024 * 1024)).toFixed(0); }
 
         const commonOptions = {
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
-            elements: {
-                point: { radius: 0 } 
-            },
+            elements: { point: { radius: 0 } },
             scales: {
                 x: { display: false }, 
                 y: {
                     min: 0,
                     max: 100,
-                    grid: {
-                        color: 'rgba(51, 65, 85, 0.5)', 
-                        borderDash: [5, 5]
-                    },
-                    ticks: {
-                        callback: function(value) { return value + '%' }
-                    }
+                    grid: { color: 'rgba(51, 65, 85, 0.5)', borderDash: [5, 5] },
+                    ticks: { callback: function(value) { return value + '%' } }
                 }
             },
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: '#1e293b',
-                    titleColor: '#f1f5f9',
-                    bodyColor: '#94a3b8',
-                    borderColor: '#334155',
-                    borderWidth: 1
-                }
+                tooltip: { mode: 'index', intersect: false, backgroundColor: '#1e293b', titleColor: '#f1f5f9', bodyColor: '#94a3b8', borderColor: '#334155', borderWidth: 1 }
             }
         };
 
@@ -305,20 +290,9 @@
         const cpuGradient = cpuCtx.createLinearGradient(0, 0, 0, 400);
         cpuGradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
         cpuGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
-
         const cpuChart = new Chart(cpuCtx, {
             type: 'line',
-            data: {
-                labels: Array(30).fill(''),
-                datasets: [{
-                    data: Array(30).fill(0),
-                    borderColor: '#ef4444',
-                    backgroundColor: cpuGradient,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
+            data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#ef4444', backgroundColor: cpuGradient, borderWidth: 2, fill: true, tension: 0.4 }] },
             options: commonOptions
         });
 
@@ -326,20 +300,9 @@
         const memGradient = memCtx.createLinearGradient(0, 0, 0, 400);
         memGradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
         memGradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
-
         const memChart = new Chart(memCtx, {
             type: 'line',
-            data: {
-                labels: Array(30).fill(''),
-                datasets: [{
-                    data: Array(30).fill(0),
-                    borderColor: '#3b82f6',
-                    backgroundColor: memGradient,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
+            data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#3b82f6', backgroundColor: memGradient, borderWidth: 2, fill: true, tension: 0.4 }] },
             options: commonOptions
         });
 
@@ -382,13 +345,10 @@
             updateChart(memChart, data.mem, 'memValue');
         });
 
-        function updatePodInfo(name) {
-            document.getElementById('podName').textContent = name;
-        }
+        function updatePodInfo(name) { document.getElementById('podName').textContent = name; }
 
         function updateChart(chart, value, valueElementId) {
             document.getElementById(valueElementId).innerHTML = `${value}<span class="unit">%</span>`;
-            
             const data = chart.data.datasets[0].data;
             data.shift();
             data.push(value);
@@ -406,7 +366,9 @@
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
-        // experiment
+        // ==========================================
+        // EXPERIMENT: DISTRIBUTED RENDER FARM
+        // ==========================================
         const GRID_SIZE = 8; // 8x8 = 64 kocka
         let podStats = {};   // Statisztika tárolása
 
@@ -417,7 +379,6 @@
                 return;
             }
 
-            // Statisztika nullázása
             podStats = {};
             updateLeaderboard();
 
@@ -428,14 +389,21 @@
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d');
                 
-                // Kép mérete: Növelhetjük picit, ha jobb felbontást akarsz (pl. 400x400)
-                canvas.width = 200;
-                canvas.height = 200;
+                // Mivel a betűk magasabbak, mint amilyen szélesek, a 200x200-as vászon
+                // pont jó felbontást fog adni egy élesebb képhez.
+                canvas.width = 240; 
+                canvas.height = 240;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                 const renderGrid = document.getElementById('renderGrid');
-                // Nincs gap!
                 renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
+                
+                // ESZTÉTIKAI JAVÍTÁS: A karakterek térközének és magasságának beállítása,
+                // hogy ne essen szét az arány!
+                renderGrid.style.lineHeight = '7px';
+                renderGrid.style.letterSpacing = '1px';
+                renderGrid.style.fontSize = '8px';
+                
                 renderGrid.innerHTML = ''; 
 
                 const tileW = canvas.width / GRID_SIZE;
@@ -445,11 +413,14 @@
                     for (let col = 0; col < GRID_SIZE; col++) {
                         
                         const tileDiv = document.createElement('div');
-                        // Tiszta tartály, semmi margó vagy padding
                         tileDiv.style.margin = '0';
                         tileDiv.style.padding = '0';
-                        tileDiv.style.display = 'flex';
-                        tileDiv.innerHTML = '<span style="color: #222;">...</span>';
+                        
+                        // ❌ TÖRÖLVE: tileDiv.style.display = 'flex'; (Ez okozta a vékony téglalapot!)
+                        // ✅ HELYETTE:
+                        tileDiv.style.display = 'block'; 
+                        
+                        tileDiv.innerHTML = '<span style="color: #444;">...</span>';
                         renderGrid.appendChild(tileDiv);
 
                         const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
@@ -465,10 +436,8 @@
                         })
                         .then(response => response.json())
                         .then(data => {
-                            // Tiszta HTML beillesztése (nincs rajta a Pod név)
                             tileDiv.innerHTML = data.html;
                             
-                            // Statisztika frissítése a háttérben
                             const pName = data.podName;
                             if (!podStats[pName]) podStats[pName] = 0;
                             podStats[pName]++;
@@ -490,19 +459,15 @@
                 return;
             }
 
-            // Podok listázása
             pods.forEach(pod => {
                 const li = document.createElement('li');
                 li.style.marginBottom = '5px';
                 li.style.display = 'flex';
                 li.style.justifyContent = 'space-between';
-                
-                // Zöld pötty + Pod ID + Kiszámolt kockák száma
                 li.innerHTML = `<span><span style="color: var(--success);">●</span> ${pod}</span> <strong>${podStats[pod]} blocks</strong>`;
                 list.appendChild(li);
             });
         }
-
     </script>
 </body>
 </html>
