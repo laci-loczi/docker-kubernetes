@@ -11,6 +11,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const PORT = 3000;
 
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
@@ -93,7 +94,6 @@ server.listen(PORT, () => {
 });
 
 // experiment part
-// --- ELOSZTOTT ASCII KÉPFELDOLGOZÓ API ---
 app.post('/api/render', (req, res) => {
     const { pixels, width, height } = req.body;
     
