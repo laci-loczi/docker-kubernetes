@@ -97,7 +97,6 @@ server.listen(PORT, () => {
 app.post('/api/render', (req, res) => {
     const { pixels, width, height } = req.body;
     
-    // Sűrűbb, szebb árnyékokat adó karakterkészlet
     const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
     let asciiHTML = '';
 
@@ -112,10 +111,9 @@ app.post('/api/render', (req, res) => {
             const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
             const char = chars[charIndex];
 
-            // Színes span
             asciiHTML += `<span style="color: rgb(${r}, ${g}, ${b})">${char}</span>`;
         }
-        asciiHTML += '\n'; // <br> helyett sima sortörés (CSS fogja kezelni)
+        asciiHTML += '\n'; 
     }
 
     if (currentMode === 'stress') {

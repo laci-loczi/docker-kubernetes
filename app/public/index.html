@@ -366,11 +366,9 @@
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
-        // ==========================================
-        // EXPERIMENT: DISTRIBUTED RENDER FARM
-        // ==========================================
-        const GRID_SIZE = 8; // 8x8 = 64 kocka
-        let podStats = {};   // Statisztika tárolása
+        //experiment
+        const GRID_SIZE = 8; 
+        let podStats = {};  
 
         async function startDistributedRender() {
             const fileInput = document.getElementById('imageInput');
@@ -389,17 +387,13 @@
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d');
                 
-                // Mivel a betűk magasabbak, mint amilyen szélesek, a 200x200-as vászon
-                // pont jó felbontást fog adni egy élesebb képhez.
-                canvas.width = 240; 
-                canvas.height = 240;
+                canvas.width = 360; 
+                canvas.height = 360;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                 const renderGrid = document.getElementById('renderGrid');
                 renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
                 
-                // ESZTÉTIKAI JAVÍTÁS: A karakterek térközének és magasságának beállítása,
-                // hogy ne essen szét az arány!
                 renderGrid.style.lineHeight = '7px';
                 renderGrid.style.letterSpacing = '1px';
                 renderGrid.style.fontSize = '8px';
@@ -415,9 +409,6 @@
                         const tileDiv = document.createElement('div');
                         tileDiv.style.margin = '0';
                         tileDiv.style.padding = '0';
-                        
-                        // ❌ TÖRÖLVE: tileDiv.style.display = 'flex'; (Ez okozta a vékony téglalapot!)
-                        // ✅ HELYETTE:
                         tileDiv.style.display = 'block'; 
                         
                         tileDiv.innerHTML = '<span style="color: #444;">...</span>';
