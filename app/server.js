@@ -93,15 +93,15 @@ server.listen(PORT, () => {
 });
 
 // experiment part
-app.use(express.json({ limit: '10mb' }));
-
+// --- ELOSZTOTT ASCII KÉPFELDOLGOZÓ API ---
 app.post('/api/render', (req, res) => {
     const { pixels, width, height } = req.body;
     
-    const chars = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    // Sűrűbb, szebb árnyékokat adó karakterkészlet
+    const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
     let asciiHTML = '';
 
-    for (let y = 0; y < height; y+=2) { 
+    for (let y = 0; y < height; y += 2) { 
         for (let x = 0; x < width; x++) {
             const index = (y * width + x) * 4;
             const r = pixels[index];
@@ -109,13 +109,13 @@ app.post('/api/render', (req, res) => {
             const b = pixels[index + 2];
             
             const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
-            
             const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
             const char = chars[charIndex];
 
+            // Színes span
             asciiHTML += `<span style="color: rgb(${r}, ${g}, ${b})">${char}</span>`;
         }
-        asciiHTML += '<br>';
+        asciiHTML += '\n'; // <br> helyett sima sortörés (CSS fogja kezelni)
     }
 
     if (currentMode === 'stress') {

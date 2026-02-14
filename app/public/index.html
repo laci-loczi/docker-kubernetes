@@ -230,22 +230,32 @@
             <div class="card-header" style="margin-bottom: 15px;">
                 <div>
                     <div class="card-title">Distributed ASCII Render Farm</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px; font-family: monospace;">
-                        Upload an image to see K8s Load Balancing in action.
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px;">
+                        K8s Load Balancing in action. The image is rendered across multiple pods.
                     </div>
                 </div>
                 <i class="fas fa-layer-group" style="color: var(--border-color); font-size: 1.5rem;"></i>
             </div>
             
-            <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+            <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 15px;">
                 <input type="file" id="imageInput" accept="image/*" style="background: var(--bg-color); color: var(--text-main); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
-                <button onclick="startDistributedRender()" style="background: var(--accent-mem); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <button onclick="startDistributedRender()" style="background: var(--accent-mem); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;">
                     <i class="fas fa-play"></i> Start Rendering
                 </button>
             </div>
 
-            <div id="renderGrid" style="display: grid; gap: 2px; background: #000; padding: 2px; border-radius: 8px; overflow: hidden; font-family: monospace; font-size: 6px; line-height: 6px; white-space: pre; letter-spacing: 1px;">
+            <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
+                
+                <div id="renderGrid" style="display: grid; background: #000; border-radius: 8px; overflow: hidden; font-family: 'Courier New', Courier, monospace; font-size: 8px; line-height: 8px; letter-spacing: 0; font-weight: bold; white-space: pre; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    </div>
+
+                <div id="podLeaderboard" style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; min-width: 250px;">
+                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">Worker Nodes Activity</h4>
+                    <ul id="podList" style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem;">
+                        <li style="color: var(--text-muted);">Waiting for job...</li>
+                    </ul>
                 </div>
+            </div>
             
             <canvas id="hiddenCanvas" style="display: none;"></canvas>
         </div>
@@ -397,14 +407,19 @@
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
         // experiment
-        const GRID_SIZE = 8; 
+        const GRID_SIZE = 8; // 8x8 = 64 kocka
+        let podStats = {};   // Statisztika tárolása
 
         async function startDistributedRender() {
             const fileInput = document.getElementById('imageInput');
             if (!fileInput.files || !fileInput.files[0]) {
-                alert("Kérlek, válassz ki egy képet először!");
+                alert("Please select an image first!");
                 return;
             }
+
+            // Statisztika nullázása
+            podStats = {};
+            updateLeaderboard();
 
             const img = new Image();
             img.src = URL.createObjectURL(fileInput.files[0]);
@@ -413,11 +428,13 @@
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d');
                 
-                canvas.width = 320;
-                canvas.height = 320;
+                // Kép mérete: Növelhetjük picit, ha jobb felbontást akarsz (pl. 400x400)
+                canvas.width = 400;
+                canvas.height = 400;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                 const renderGrid = document.getElementById('renderGrid');
+                // Nincs gap!
                 renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
                 renderGrid.innerHTML = ''; 
 
@@ -428,10 +445,11 @@
                     for (let col = 0; col < GRID_SIZE; col++) {
                         
                         const tileDiv = document.createElement('div');
-                        tileDiv.style.position = 'relative';
-                        tileDiv.style.background = '#0a0a0a';
-                        tileDiv.style.minHeight = '40px';
-                        tileDiv.innerHTML = '<span style="color: #444;">Processing...</span>';
+                        // Tiszta tartály, semmi margó vagy padding
+                        tileDiv.style.margin = '0';
+                        tileDiv.style.padding = '0';
+                        tileDiv.style.display = 'flex';
+                        tileDiv.innerHTML = '<span style="color: #222;">...</span>';
                         renderGrid.appendChild(tileDiv);
 
                         const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
@@ -442,30 +460,47 @@
                             body: JSON.stringify({
                                 width: tileW,
                                 height: tileH,
-                                pixels: Array.from(imgData.data) 
+                                pixels: Array.from(imgData.data)
                             })
                         })
                         .then(response => response.json())
                         .then(data => {
+                            // Tiszta HTML beillesztése (nincs rajta a Pod név)
                             tileDiv.innerHTML = data.html;
                             
-                            const badge = document.createElement('div');
-                            badge.textContent = data.podName;
-                            badge.style.position = 'absolute';
-                            badge.style.top = '0';
-                            badge.style.left = '0';
-                            badge.style.background = 'rgba(16, 185, 129, 0.8)'; 
-                            badge.style.color = '#fff';
-                            badge.style.fontSize = '8px';
-                            badge.style.fontFamily = 'sans-serif';
-                            badge.style.padding = '2px 4px';
-                            badge.style.borderRadius = '0 0 4px 0';
-                            tileDiv.appendChild(badge);
+                            // Statisztika frissítése a háttérben
+                            const pName = data.podName;
+                            if (!podStats[pName]) podStats[pName] = 0;
+                            podStats[pName]++;
+                            updateLeaderboard();
                         })
-                        .catch(err => tileDiv.innerHTML = '<span style="color: red;">Error</span>');
+                        .catch(err => tileDiv.innerHTML = '');
                     }
                 }
             };
+        }
+
+        function updateLeaderboard() {
+            const list = document.getElementById('podList');
+            list.innerHTML = '';
+            
+            const pods = Object.keys(podStats);
+            if(pods.length === 0) {
+                list.innerHTML = '<li style="color: var(--text-muted);">Processing...</li>';
+                return;
+            }
+
+            // Podok listázása
+            pods.forEach(pod => {
+                const li = document.createElement('li');
+                li.style.marginBottom = '5px';
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                
+                // Zöld pötty + Pod ID + Kiszámolt kockák száma
+                li.innerHTML = `<span><span style="color: var(--success);">●</span> ${pod}</span> <strong>${podStats[pod]} blocks</strong>`;
+                list.appendChild(li);
+            });
         }
 
     </script>
