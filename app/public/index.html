@@ -418,7 +418,7 @@
             const img = new Image();
             img.src = URL.createObjectURL(fileInput.files[0]);
             
-            img.onload = () => {
+            img.onload = async () => {
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 canvas.width = GRID_SIZE === 32 ? 320 : 240; 
@@ -436,8 +436,8 @@
                 const tileW = Math.floor(canvas.width / GRID_SIZE);
                 const tileH = Math.floor(canvas.height / GRID_SIZE);
 
-                // --- JAVÍTÁS: Nem gyűjtjük egybe, azonnal kilőjük a csöveken (Streamelés) ---
                 for (let row = 0; row < GRID_SIZE; row++) {
+                    await new Promise(resolve => setTimeout(resolve, 15));
                     for (let col = 0; col < GRID_SIZE; col++) {
                         const chunkId = `chunk_${row}_${col}`;
                         
