@@ -6,19 +6,28 @@ const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
 
-// --- ÚJ: Redis Importok ---
 const Redis = require('ioredis');
-// 1. A feladatok bedobálására és olvasására (Queue)
-const redisQueue = new Redis({ host: '127.0.0.1', port: 6379 });
-// 2. A "Kész vagyok" üzenetek hallgatására (Pub/Sub)
-const redisSub = new Redis({ host: '127.0.0.1', port: 6379 });
 
-// A kliensek tárolása (hogy tudjuk, kinek kell visszaküldeni az eredményt)
+// --- JAVÍTÁS 2: Redis Host rugalmasság ---
+// K8s-ben a 127.0.0.1 nem fogja látni a gépeden futó Redist! 
+// Vagy add meg a géped LAN IP-jét, vagy ha K8s-ben fut a Redis, akkor a Service nevét.
+const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1'; 
+const redisQueue = new Redis({ host: REDIS_HOST, port: 6379 });
+const redisSub = new Redis({ host: REDIS_HOST, port: 6379 });
+
+// Ne haljon meg a pod, ha nincs Redis, csak írja ki a hibát!
+redisQueue.on('error', (err) => console.error('Redis Queue Error:', err.message));
+redisSub.on('error', (err) => console.error('Redis Sub Error:', err.message));
+
 const clients = {}; 
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+// --- JAVÍTÁS 1: Socket.io Payload Limit megemelése 100MB-ra ---
+const io = new Server(server, {
+    maxHttpBufferSize: 1e8 
+});
 const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
@@ -28,18 +37,13 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
-// cpu usage 
 let startUsage = process.cpuUsage();
 let startTime = process.hrtime.bigint();
-
 let currentMode = 'normal';
 let memoryHog = [];
 
 io.on('connection', (socket) => {
-    // name of the pod
     socket.emit('init info', { hostname: os.hostname() });
-    
-    // Regisztráljuk a klienst, amikor csatlakozik (A Redis Master logikához)
     clients[socket.id] = socket;
 
     socket.on('change mode', (data) => {
@@ -56,29 +60,23 @@ io.on('connection', (socket) => {
         }
     });
 
-    // === ÚJ RÉSZ: A Master fogadja a csomagot a klienstől ===
-    socket.on('start render', async (data) => {
+    // --- JAVÍTÁS 3: Kockánként fogadjuk a feladatot, nem egyben! ---
+    socket.on('start render chunk', async (data) => {
         const jobId = socket.id; 
-        const pipeline = redisQueue.pipeline(); 
-
-        // Végigmegyünk a kockákon, és bedobáljuk őket a Redis közös asztalára
-        data.chunks.forEach(chunk => {
-            pipeline.lpush('render_tasks', JSON.stringify({
-                jobId: jobId,
-                chunkId: chunk.chunkId,
-                width: chunk.width,
-                height: chunk.height,
-                mode: data.mode,
-                pixels: chunk.pixels
-            }));
-        });
         
-        // Egyetlen mozdulattal beküldjük az egészet a bázisba
-        await pipeline.exec();
+        // Egyesével, amint megjön a weblapról, azonnal bedobjuk a Redisbe
+        await redisQueue.lpush('render_tasks', JSON.stringify({
+            jobId: jobId,
+            chunkId: data.chunk.chunkId,
+            width: data.chunk.width,
+            height: data.chunk.height,
+            mode: data.mode,
+            pixels: data.chunk.pixels
+        }));
     });
 
     socket.on('disconnect', () => {
-        delete clients[socket.id]; // Takarítás, ha elmegy a user
+        delete clients[socket.id]; 
     });
 });
 
@@ -89,9 +87,7 @@ function generateLoad() {
     }
 }
 
-// updating every 1 second
 setInterval(() => {
-    
     if (currentMode === 'stress') {
         const startLoop = Date.now();
         while (Date.now() - startLoop < 500) { 
@@ -99,7 +95,6 @@ setInterval(() => {
         }
     }
 
-    // real time cpu usage
     const endUsage = process.cpuUsage(startUsage);
     const endTime = process.hrtime.bigint();
     
@@ -110,13 +105,11 @@ setInterval(() => {
     startUsage = process.cpuUsage();
     startTime = process.hrtime.bigint();
 
-    // real time memory 
     const memUsage = process.memoryUsage();
     const totalSystemMem = os.totalmem();
     const usedMemBytes = memUsage.rss;
     const memPercentage = (usedMemBytes / totalSystemMem) * 100;
 
-    // sending data
     io.emit('stats update', {
         cpu: cpuPercentage.toFixed(1),
         mem: memPercentage.toFixed(2),
@@ -140,24 +133,16 @@ function stringToColor(str) {
     return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-// ==========================================
-// ÚJ: 1. A MASTER LOGIKA (Eredmények fogadása Redisen keresztül)
-// ==========================================
 redisSub.psubscribe('job_results_*');
 redisSub.on('pmessage', (pattern, channel, message) => {
     const jobId = channel.replace('job_results_', '');
-    // Ha a kliens ehhez a Podhoz van csatlakozva, továbbítjuk neki az eredményt
     if (clients[jobId]) {
         clients[jobId].emit('render result', JSON.parse(message));
     }
 });
 
-// ==========================================
-// ÚJ: 2. A WORKER LOGIKA (Folyamatosan fut a háttérben, várja a feladatot)
-// ==========================================
 async function workerLoop() {
     try {
-        // Blokkoló lekérés: csak akkor megy tovább, ha van munka a Redisben
         const taskRaw = await redisQueue.brpop('render_tasks', 0);
         
         if (taskRaw) {
@@ -167,11 +152,9 @@ async function workerLoop() {
             const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
             let asciiHTML = '';
             
-            // Lekérjük a JELENLEGI pod nevét, aki a munkát végzi
             const workerName = os.hostname();
             const podColor = stringToColor(workerName);
 
-            // Matek elvégzése
             for (let y = 0; y < height; y += 2) { 
                 for (let x = 0; x < width; x++) {
                     const index = (y * width + x) * 4;
@@ -200,7 +183,6 @@ async function workerLoop() {
                 while (Date.now() - start < 100) {} 
             }
 
-            // Kész az eredmény! Publikáljuk a Redis csatornára.
             const resultPayload = { 
                 chunkId: chunkId, 
                 podName: workerName, 
@@ -209,12 +191,9 @@ async function workerLoop() {
             };
             redisQueue.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));
         }
-    } catch (err) {
-        console.error("Worker error:", err);
-    }
-    // Azonnali újraindítás
+    } catch (err) {} 
+    
     setImmediate(workerLoop);
 }
 
-// Elindítjuk a Munkást!
 workerLoop();

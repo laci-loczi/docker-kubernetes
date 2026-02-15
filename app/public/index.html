@@ -393,6 +393,7 @@
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
         //experiment
+       //experiment
         let podStats = {};  
         let totalTiles = 0;
         let completedTiles = 0;
@@ -432,16 +433,13 @@
                 const tileW = Math.floor(canvas.width / GRID_SIZE);
                 const tileH = Math.floor(canvas.height / GRID_SIZE);
 
-                // 1. Összegyűjtjük a feladatokat egy tömbbe
-                const tasks = [];
-
+                // --- JAVÍTÁS: Nem gyűjtjük egybe, azonnal kilőjük a csöveken (Streamelés) ---
                 for (let row = 0; row < GRID_SIZE; row++) {
                     for (let col = 0; col < GRID_SIZE; col++) {
                         const chunkId = `chunk_${row}_${col}`;
                         
-                        // Üres dobozok létrehozása az UI-on
                         const tileDiv = document.createElement('div');
-                        tileDiv.id = chunkId; // ID-t adunk neki, hogy tudjuk, hova jön vissza az adat!
+                        tileDiv.id = chunkId; 
                         tileDiv.style.margin = '0';
                         tileDiv.style.padding = '0';
                         tileDiv.style.display = 'block'; 
@@ -450,28 +448,26 @@
 
                         const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
                         
-                        tasks.push({
+                        const task = {
                             chunkId: chunkId,
                             width: tileW,
                             height: tileH,
                             pixels: Array.from(imgData.data)
-                        });
+                        };
+
+                        // Kockánként küldjük az adatot! Ez megvédi a memóriát, és villámgyors.
+                        socket.emit('start render chunk', { mode: MODE, chunk: task });
                     }
                 }
-
-                // 2. KILÖVJÜK AZ 1 DARAB KÉRÉST! 🚀 (Viszlát HTTP limitek!)
-                socket.emit('start render', { mode: MODE, chunks: tasks });
             };
         }
 
         // 3. FOGADJUK AZ EREDMÉNYEKET ÉLŐBEN
         socket.on('render result', (data) => {
-            // Megkeressük a dobozt, ahova ez az eredmény való
             const tileDiv = document.getElementById(data.chunkId);
             if (tileDiv) {
                 tileDiv.innerHTML = data.html;
                 
-                // Statisztika frissítése
                 const pName = data.podName;
                 if (!podStats[pName]) podStats[pName] = { count: 0, color: data.podColor };
                 podStats[pName].count++;
