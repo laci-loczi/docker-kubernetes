@@ -420,7 +420,7 @@
             
             img.onload = () => {
                 const canvas = document.getElementById('hiddenCanvas');
-                const ctx = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 canvas.width = GRID_SIZE === 32 ? 320 : 240; 
                 canvas.height = canvas.width;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);

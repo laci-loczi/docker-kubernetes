@@ -11,26 +11,20 @@ const Redis = require('ioredis');
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
-const redisQueue = new Redis({ 
-    host: REDIS_HOST, 
-    port: 6379,
-    maxRetriesPerRequest: null 
-});
+const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
 
-const redisSub = new Redis({ 
-    host: REDIS_HOST, 
-    port: 6379,
-    maxRetriesPerRequest: null 
-});
+redisMaster.on('error', (err) => console.error('Redis Master hiba (keresem a kapcsolatot...)'));
+redisWorker.on('error', (err) => console.error('Redis Worker hiba (keresem a kapcsolatot...)'));
+redisSub.on('error', (err) => console.error('Redis Sub hiba (keresem a kapcsolatot...)'));
 
-redisQueue.on('error', (err) => console.error('⚠️ Redis Queue hiba (keresem a kapcsolatot...)'));
-redisSub.on('error', (err) => console.error('⚠️ Redis Sub hiba (keresem a kapcsolatot...)'));
 process.on('uncaughtException', (err) => {
-    console.error('🔥 Kritikus hiba:', err.message);
+    console.error('Kritikus hiba:', err.message);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('🔥 Kezeletlen Promise hiba:', reason);
+    console.error('Kezeletlen Promise hiba:', reason);
 });
 // -------------------------------------------------------------
 
@@ -39,7 +33,6 @@ const clients = {};
 const app = express();
 const server = http.createServer(app);
 
-// --- JAVÍTÁS 1: Socket.io Payload Limit megemelése 100MB-ra ---
 const io = new Server(server, {
     maxHttpBufferSize: 1e8 
 });
@@ -75,12 +68,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- JAVÍTÁS 3: Kockánként fogadjuk a feladatot, nem egyben! ---
     socket.on('start render chunk', async (data) => {
         const jobId = socket.id; 
         
-        // Egyesével, amint megjön a weblapról, azonnal bedobjuk a Redisbe
-        await redisQueue.lpush('render_tasks', JSON.stringify({
+        await redisMaster.lpush('render_tasks', JSON.stringify({
             jobId: jobId,
             chunkId: data.chunk.chunkId,
             width: data.chunk.width,
@@ -158,8 +149,7 @@ redisSub.on('pmessage', (pattern, channel, message) => {
 
 async function workerLoop() {
     try {
-        const taskRaw = await redisQueue.brpop('render_tasks', 0);
-        
+        const taskRaw = await redisWorker.brpop('render_tasks', 0);        
         if (taskRaw) {
             const task = JSON.parse(taskRaw[1]);
             const { jobId, chunkId, pixels, width, height, mode } = task;
@@ -204,9 +194,11 @@ async function workerLoop() {
                 podColor: podColor, 
                 html: asciiHTML 
             };
-            redisQueue.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));
+            redisMaster.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));        
         }
-    } catch (err) {} 
+    } catch (err) {
+        console.error("Worker hiba történt:", err);
+    }
     
     setImmediate(workerLoop);
 }
