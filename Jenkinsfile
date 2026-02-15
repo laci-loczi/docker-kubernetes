@@ -7,7 +7,7 @@ pipeline {
         stage('Setup Tools') {
             steps {
                 script {
-                    // Ha nincs docker vagy kubectl, letöltjük (ez a rész maradhat a régi)
+                    //docker and kubectl
                     if (!fileExists('docker/docker')) {
                         sh 'curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-24.0.5.tgz'
                         sh 'tar xzvf docker-24.0.5.tgz --strip 1 -C . docker/docker'
@@ -27,13 +27,13 @@ pipeline {
         stage('Deploy to K8s') {
             steps {
                 sh './kubectl replace --force -f k8s/deployment.yaml' 
-                // A 'replace --force' drasztikusabb mint a 'apply', jobban takarít
+                // apply the deployment
             }
         }
     }
     post {
         always {
-            // EZ AZ ÚJ RÉSZ: Töröljük a "dangling" (felesleges) image-eket
+            // removing images
             sh './docker image prune -f'
         }
     }

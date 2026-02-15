@@ -169,6 +169,17 @@
             position: relative;
             min-height: 200px;
         }
+        button.chaos-btn {
+            border-color: #f43f5e;
+            color: #f43f5e;
+            background-color: rgba(244, 63, 94, 0.05);
+            font-weight: 600;
+        }
+
+        button.chaos-btn:hover {
+            background-color: rgba(244, 63, 94, 0.2);
+            box-shadow: 0 0 15px rgba(244, 63, 94, 0.4);
+        }
         @media (max-width: 768px) {
             body { padding: 20px; }
             header { flex-direction: column; align-items: flex-start; gap: 20px; }
@@ -192,6 +203,9 @@
             </button>
             <button class="active-stress" onclick="setMode('stress')">
                 </i> Stress Test
+            </button>
+            <button class="chaos-btn" onclick="triggerChaosMonkey()">
+                </i> Kill Pod
             </button>
         </div>
     </header>
@@ -229,9 +243,9 @@
         <div class="card">
             <div class="card-header" style="margin-bottom: 15px;">
                 <div>
-                    <div class="card-title">Distributed ASCII Render Farm</div>
+                    <div class="card-title">Turn a picture into ASCII</div>
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px;">
-                        K8s Load Balancing in action. The image is rendered across multiple pods.
+                        K8s Load Balancing. The image is rendered across multiple pods.
                     </div>
                 </div>
                 <i class="fas fa-layer-group" style="color: var(--border-color); font-size: 1.5rem;"></i>
@@ -261,6 +275,15 @@
         </div>
     </section>
     <script>
+
+        function triggerChaosMonkey() {
+            const password = prompt("Killing the running pod:");
+            if (!password) return;
+            
+            const currentPod = document.getElementById('podName').textContent;           
+            socket.emit('kill pod', { password: password });
+        }
+
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = '#334155';
         
@@ -387,8 +410,8 @@
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d');
                 
-                canvas.width = 360; 
-                canvas.height = 360;
+                canvas.width = 200; 
+                canvas.height = 200;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                 const renderGrid = document.getElementById('renderGrid');

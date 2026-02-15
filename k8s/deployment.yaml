@@ -1,6 +1,6 @@
 # k8s/deployment.yaml
 
-# --- 1. NODE.JS BACKEND ---
+# node.js
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,16 +21,15 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3000
-        # --- EZT A RÉSZT ILLESZD BE ---
         env:
-          - name: ADMIN_PASSWORD  # Így hívják majd a Node.js-en belül
+          - name: ADMIN_PASSWORD 
             valueFrom:
               secretKeyRef:
-                name: app-secrets # A széf neve (amit az 1. lépésben adtál)
-                key: ADMIN_PASSWORD # A kulcs a széfben
-        # ------------------------------
+                name: app-secrets
+                key: ADMIN_PASSWORD 
+
 ---
-# Ez a belső szolgáltatás. Kívülről NEM elérhető (ClusterIP), csak az Nginx látja.
+# service
 apiVersion: v1
 kind: Service
 metadata:
@@ -45,7 +44,7 @@ spec:
 
 ---
 
-# --- 2. NGINX FRONTEND ---
+# nginx
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -74,7 +73,7 @@ spec:
         configMap:
           name: nginx-conf
 ---
-# Ez a publikus kapu. A LoadBalancer típus miatt elérhető lesz localhost:80-on.
+# service for port 80
 apiVersion: v1
 kind: Service
 metadata:

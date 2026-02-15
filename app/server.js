@@ -42,6 +42,14 @@ io.on('connection', (socket) => {
             if (global.gc) { global.gc(); }
         }
     });
+
+    socket.on('kill pod', (data) => {
+        if (data.password === ADMIN_PASSWORD) {
+            process.exit(1); 
+        } else {
+            socket.emit('auth error', 'Wrong password');
+        }
+    });
 });
 
 function generateLoad() {
