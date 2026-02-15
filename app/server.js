@@ -68,17 +68,23 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('start render chunk', async (data) => {
+    socket.on('start render row', async (data) => {
         const jobId = socket.id; 
         
-        await redisMaster.lpush('render_tasks', JSON.stringify({
-            jobId: jobId,
-            chunkId: data.chunk.chunkId,
-            width: data.chunk.width,
-            height: data.chunk.height,
-            mode: data.mode,
-            pixels: data.chunk.pixels
-        }));
+        const pipeline = redisMaster.pipeline();
+        
+        data.chunks.forEach(chunk => {
+            pipeline.lpush('render_tasks', JSON.stringify({
+                jobId: jobId,
+                chunkId: chunk.chunkId,
+                width: chunk.width,
+                height: chunk.height,
+                mode: data.mode,
+                pixels: chunk.pixels
+            }));
+        });
+        
+        await pipeline.exec();
     });
 
     socket.on('disconnect', () => {
