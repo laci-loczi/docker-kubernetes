@@ -8,16 +8,31 @@ const crypto = require('crypto');
 
 const Redis = require('ioredis');
 
-// --- JAVÍTÁS 2: Redis Host rugalmasság ---
-// K8s-ben a 127.0.0.1 nem fogja látni a gépeden futó Redist! 
-// Vagy add meg a géped LAN IP-jét, vagy ha K8s-ben fut a Redis, akkor a Service nevét.
-const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1'; 
-const redisQueue = new Redis({ host: REDIS_HOST, port: 6379 });
-const redisSub = new Redis({ host: REDIS_HOST, port: 6379 });
 
-// Ne haljon meg a pod, ha nincs Redis, csak írja ki a hibát!
-redisQueue.on('error', (err) => console.error('Redis Queue Error:', err.message));
-redisSub.on('error', (err) => console.error('Redis Sub Error:', err.message));
+// -------------------------------------------------------------
+const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
+const redisQueue = new Redis({ 
+    host: REDIS_HOST, 
+    port: 6379,
+    maxRetriesPerRequest: null 
+});
+
+const redisSub = new Redis({ 
+    host: REDIS_HOST, 
+    port: 6379,
+    maxRetriesPerRequest: null 
+});
+
+redisQueue.on('error', (err) => console.error('⚠️ Redis Queue hiba (keresem a kapcsolatot...)'));
+redisSub.on('error', (err) => console.error('⚠️ Redis Sub hiba (keresem a kapcsolatot...)'));
+process.on('uncaughtException', (err) => {
+    console.error('🔥 Kritikus hiba:', err.message);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🔥 Kezeletlen Promise hiba:', reason);
+});
+// -------------------------------------------------------------
 
 const clients = {}; 
 
