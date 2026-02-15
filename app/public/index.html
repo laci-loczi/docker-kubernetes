@@ -393,23 +393,22 @@
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
         //experiment
-
         let podStats = {};  
         let totalTiles = 0;
         let completedTiles = 0;
 
         async function startDistributedRender() {
+            if (!isSystemOnline) { alert("🚨 Rendszer offline!"); return; }
+
             const fileInput = document.getElementById('imageInput');
-            if (!fileInput.files || !fileInput.files[0]) {
-                alert("Nincs kiválasztva kép!"); return;
-            }
+            if (!fileInput.files || !fileInput.files[0]) { alert("Nincs kiválasztva kép!"); return; }
 
             const GRID_SIZE = parseInt(document.getElementById('gridSize').value);
             const MODE = document.getElementById('renderMode').value;
             
             totalTiles = GRID_SIZE * GRID_SIZE;
             completedTiles = 0;
-            podStats = {}; 
+            podStats = {};
             updateLeaderboard();
 
             const img = new Image();
@@ -418,7 +417,6 @@
             img.onload = () => {
                 const canvas = document.getElementById('hiddenCanvas');
                 const ctx = canvas.getContext('2d');
-                
                 canvas.width = GRID_SIZE === 32 ? 320 : 240; 
                 canvas.height = canvas.width;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -426,22 +424,24 @@
                 const renderGrid = document.getElementById('renderGrid');
                 renderGrid.style.display = 'grid';
                 renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
-                
-                const fSize = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '5px' : '8px');
-                const lHeight = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '4px' : '7px');
-                
-                renderGrid.style.fontSize = fSize;
-                renderGrid.style.lineHeight = lHeight;
+                renderGrid.style.fontSize = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '5px' : '8px');
+                renderGrid.style.lineHeight = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '4px' : '7px');
                 renderGrid.style.letterSpacing = '1px';
                 renderGrid.innerHTML = ''; 
 
                 const tileW = Math.floor(canvas.width / GRID_SIZE);
                 const tileH = Math.floor(canvas.height / GRID_SIZE);
 
+                // 1. Összegyűjtjük a feladatokat egy tömbbe
+                const tasks = [];
+
                 for (let row = 0; row < GRID_SIZE; row++) {
                     for (let col = 0; col < GRID_SIZE; col++) {
+                        const chunkId = `chunk_${row}_${col}`;
                         
+                        // Üres dobozok létrehozása az UI-on
                         const tileDiv = document.createElement('div');
+                        tileDiv.id = chunkId; // ID-t adunk neki, hogy tudjuk, hova jön vissza az adat!
                         tileDiv.style.margin = '0';
                         tileDiv.style.padding = '0';
                         tileDiv.style.display = 'block'; 
@@ -450,38 +450,36 @@
 
                         const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
                         
-                        fetch('/api/render', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                width: tileW,
-                                height: tileH,
-                                mode: MODE, 
-                                pixels: Array.from(imgData.data)
-                            })
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            tileDiv.innerHTML = data.html;
-                            
-                            const pName = data.podName;
-                            if (!podStats[pName]) {
-                                podStats[pName] = { count: 0, color: data.podColor };
-                            }
-                            podStats[pName].count++;
-                            
-                            completedTiles++;
-                            updateLeaderboard();
-                        })
-                        .catch(err => {
-                            tileDiv.innerHTML = '';
-                            completedTiles++;
-                            updateLeaderboard();
+                        tasks.push({
+                            chunkId: chunkId,
+                            width: tileW,
+                            height: tileH,
+                            pixels: Array.from(imgData.data)
                         });
                     }
                 }
+
+                // 2. KILÖVJÜK AZ 1 DARAB KÉRÉST! 🚀 (Viszlát HTTP limitek!)
+                socket.emit('start render', { mode: MODE, chunks: tasks });
             };
         }
+
+        // 3. FOGADJUK AZ EREDMÉNYEKET ÉLŐBEN
+        socket.on('render result', (data) => {
+            // Megkeressük a dobozt, ahova ez az eredmény való
+            const tileDiv = document.getElementById(data.chunkId);
+            if (tileDiv) {
+                tileDiv.innerHTML = data.html;
+                
+                // Statisztika frissítése
+                const pName = data.podName;
+                if (!podStats[pName]) podStats[pName] = { count: 0, color: data.podColor };
+                podStats[pName].count++;
+                completedTiles++;
+                
+                updateLeaderboard();
+            }
+        });
 
         function updateLeaderboard() {
             const list = document.getElementById('podList');

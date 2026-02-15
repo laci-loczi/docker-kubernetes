@@ -6,6 +6,16 @@ const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
 
+// --- ÚJ: Redis Importok ---
+const Redis = require('ioredis');
+// 1. A feladatok bedobálására és olvasására (Queue)
+const redisQueue = new Redis({ host: '127.0.0.1', port: 6379 });
+// 2. A "Kész vagyok" üzenetek hallgatására (Pub/Sub)
+const redisSub = new Redis({ host: '127.0.0.1', port: 6379 });
+
+// A kliensek tárolása (hogy tudjuk, kinek kell visszaküldeni az eredményt)
+const clients = {}; 
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -28,6 +38,9 @@ let memoryHog = [];
 io.on('connection', (socket) => {
     // name of the pod
     socket.emit('init info', { hostname: os.hostname() });
+    
+    // Regisztráljuk a klienst, amikor csatlakozik (A Redis Master logikához)
+    clients[socket.id] = socket;
 
     socket.on('change mode', (data) => {
         if (data.mode === 'stress') {
@@ -41,6 +54,31 @@ io.on('connection', (socket) => {
             memoryHog = [];
             if (global.gc) { global.gc(); }
         }
+    });
+
+    // === ÚJ RÉSZ: A Master fogadja a csomagot a klienstől ===
+    socket.on('start render', async (data) => {
+        const jobId = socket.id; 
+        const pipeline = redisQueue.pipeline(); 
+
+        // Végigmegyünk a kockákon, és bedobáljuk őket a Redis közös asztalára
+        data.chunks.forEach(chunk => {
+            pipeline.lpush('render_tasks', JSON.stringify({
+                jobId: jobId,
+                chunkId: chunk.chunkId,
+                width: chunk.width,
+                height: chunk.height,
+                mode: data.mode,
+                pixels: chunk.pixels
+            }));
+        });
+        
+        // Egyetlen mozdulattal beküldjük az egészet a bázisba
+        await pipeline.exec();
+    });
+
+    socket.on('disconnect', () => {
+        delete clients[socket.id]; // Takarítás, ha elmegy a user
     });
 });
 
@@ -102,46 +140,81 @@ function stringToColor(str) {
     return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-// experiment part
-app.post('/api/render', (req, res) => {
-    const { pixels, width, height, mode } = req.body;
-    
-    const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
-    let asciiHTML = '';
-    
-    const podColor = stringToColor(os.hostname());
+// ==========================================
+// ÚJ: 1. A MASTER LOGIKA (Eredmények fogadása Redisen keresztül)
+// ==========================================
+redisSub.psubscribe('job_results_*');
+redisSub.on('pmessage', (pattern, channel, message) => {
+    const jobId = channel.replace('job_results_', '');
+    // Ha a kliens ehhez a Podhoz van csatlakozva, továbbítjuk neki az eredményt
+    if (clients[jobId]) {
+        clients[jobId].emit('render result', JSON.parse(message));
+    }
+});
 
-    for (let y = 0; y < height; y += 2) { 
-        for (let x = 0; x < width; x++) {
-            const index = (y * width + x) * 4;
-            const r = pixels[index];
-            const g = pixels[index + 1];
-            const b = pixels[index + 2];
+// ==========================================
+// ÚJ: 2. A WORKER LOGIKA (Folyamatosan fut a háttérben, várja a feladatot)
+// ==========================================
+async function workerLoop() {
+    try {
+        // Blokkoló lekérés: csak akkor megy tovább, ha van munka a Redisben
+        const taskRaw = await redisQueue.brpop('render_tasks', 0);
+        
+        if (taskRaw) {
+            const task = JSON.parse(taskRaw[1]);
+            const { jobId, chunkId, pixels, width, height, mode } = task;
             
-            const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
-            const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
-            const char = chars[charIndex];
-            let finalColor = `rgb(${r}, ${g}, ${b})`; 
+            const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
+            let asciiHTML = '';
             
-            if (mode === 'topology') {
-                finalColor = podColor;
-            } else if (mode === 'matrix') {
-                finalColor = '#10b981'; 
+            // Lekérjük a JELENLEGI pod nevét, aki a munkát végzi
+            const workerName = os.hostname();
+            const podColor = stringToColor(workerName);
+
+            // Matek elvégzése
+            for (let y = 0; y < height; y += 2) { 
+                for (let x = 0; x < width; x++) {
+                    const index = (y * width + x) * 4;
+                    const r = pixels[index];
+                    const g = pixels[index + 1];
+                    const b = pixels[index + 2];
+                    
+                    const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
+                    const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
+                    const char = chars[charIndex];
+                    let finalColor = `rgb(${r}, ${g}, ${b})`; 
+                    
+                    if (mode === 'topology') {
+                        finalColor = podColor;
+                    } else if (mode === 'matrix') {
+                        finalColor = '#10b981'; 
+                    }
+
+                    asciiHTML += `<span style="color: ${finalColor}">${char}</span>`;
+                }
+                asciiHTML += '\n'; 
             }
 
-            asciiHTML += `<span style="color: ${finalColor}">${char}</span>`;
+            if (currentMode === 'stress') {
+                const start = Date.now();
+                while (Date.now() - start < 100) {} 
+            }
+
+            // Kész az eredmény! Publikáljuk a Redis csatornára.
+            const resultPayload = { 
+                chunkId: chunkId, 
+                podName: workerName, 
+                podColor: podColor, 
+                html: asciiHTML 
+            };
+            redisQueue.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));
         }
-        asciiHTML += '\n'; 
+    } catch (err) {
+        console.error("Worker error:", err);
     }
+    // Azonnali újraindítás
+    setImmediate(workerLoop);
+}
 
-    if (currentMode === 'stress') {
-        const start = Date.now();
-        while (Date.now() - start < 100) {} 
-    }
-
-    res.json({
-        podName: os.hostname(),
-        podColor: podColor,
-        html: asciiHTML
-    });
-});
+// Elindítjuk a Munkást!
+workerLoop();
