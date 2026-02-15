@@ -42,14 +42,6 @@ io.on('connection', (socket) => {
             if (global.gc) { global.gc(); }
         }
     });
-
-    socket.on('kill pod', (data) => {
-        if (data.password === ADMIN_PASSWORD) {
-            process.exit(1); 
-        } else {
-            socket.emit('auth error', 'Wrong password');
-        }
-    });
 });
 
 function generateLoad() {
@@ -101,12 +93,23 @@ server.listen(PORT, () => {
     console.log(`Monitor running on ${PORT}`);
 });
 
+function stringToColor(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+    return '#' + '00000'.substring(0, 6 - c.length) + c;
+}
+
 // experiment part
 app.post('/api/render', (req, res) => {
-    const { pixels, width, height } = req.body;
+    const { pixels, width, height, mode } = req.body;
     
     const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
     let asciiHTML = '';
+    
+    const podColor = stringToColor(os.hostname());
 
     for (let y = 0; y < height; y += 2) { 
         for (let x = 0; x < width; x++) {
@@ -118,19 +121,27 @@ app.post('/api/render', (req, res) => {
             const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
             const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
             const char = chars[charIndex];
+            let finalColor = `rgb(${r}, ${g}, ${b})`; 
+            
+            if (mode === 'topology') {
+                finalColor = podColor;
+            } else if (mode === 'matrix') {
+                finalColor = '#10b981'; 
+            }
 
-            asciiHTML += `<span style="color: rgb(${r}, ${g}, ${b})">${char}</span>`;
+            asciiHTML += `<span style="color: ${finalColor}">${char}</span>`;
         }
         asciiHTML += '\n'; 
     }
 
     if (currentMode === 'stress') {
         const start = Date.now();
-        while (Date.now() - start < 200) {} 
+        while (Date.now() - start < 100) {} 
     }
 
     res.json({
         podName: os.hostname(),
+        podColor: podColor,
         html: asciiHTML
     });
 });
