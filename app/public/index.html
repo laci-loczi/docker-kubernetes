@@ -334,15 +334,18 @@
 
         const socket = io({
             path: '/socket.io/',
-            transports: ['websocket', 'polling'],
+            transports: ['websocket'],
             reconnection: true,
             reconnectionAttempts: 20
         });
+
+        let isSystemOnline = false;
 
         const statusLabel = document.getElementById('connectionStatus');
         const statusDot = document.querySelector('.status-indicator');
 
         socket.on('connect', () => {
+            isSystemOnline = true; 
             statusLabel.textContent = "Live Connection";
             statusLabel.style.color = "#10b981";
             statusDot.style.backgroundColor = "#10b981";
@@ -350,6 +353,7 @@
         });
 
         socket.on('disconnect', () => {
+            isSystemOnline = false; 
             statusLabel.textContent = "Offline (Reconnecting...)";
             statusLabel.style.color = "#ef4444";
             statusDot.style.backgroundColor = "#ef4444";
@@ -392,7 +396,6 @@
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
-        //experiment
        //experiment
         let podStats = {};  
         let totalTiles = 0;
