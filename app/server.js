@@ -33,12 +33,10 @@ const clients = {};
 const app = express();
 const server = http.createServer(app);
 
-const io = new Server(server, {
-    maxHttpBufferSize: 1e8 
-});
+const io = new Server(server, { maxHttpBufferSize: 2e6 });
 const PORT = 3000;
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
@@ -79,6 +77,9 @@ io.on('connection', (socket) => {
                 chunkId: chunk.chunkId,
                 width: chunk.width,
                 height: chunk.height,
+                globalX: chunk.globalX, 
+                globalY: chunk.globalY, 
+                aiBoxes: data.aiBoxes,  
                 mode: data.mode,
                 pixels: chunk.pixels
             }));
@@ -158,7 +159,7 @@ async function workerLoop() {
         const taskRaw = await redisWorker.brpop('render_tasks', 0);        
         if (taskRaw) {
             const task = JSON.parse(taskRaw[1]);
-            const { jobId, chunkId, pixels, width, height, mode } = task;
+            const { jobId, chunkId, pixels, width, height, mode, globalX, globalY, aiBoxes } = task;
             
             const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
             let asciiHTML = '';
@@ -173,18 +174,54 @@ async function workerLoop() {
                     const g = pixels[index + 1];
                     const b = pixels[index + 2];
                     
+                    const gX = globalX + x;
+                    const gY = globalY + y;
+
                     const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
                     const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
-                    const char = chars[charIndex];
-                    let finalColor = `rgb(${r}, ${g}, ${b})`; 
                     
-                    if (mode === 'topology') {
-                        finalColor = podColor;
-                    } else if (mode === 'matrix') {
-                        finalColor = '#10b981'; 
+                    let charToDraw = chars[charIndex];
+                    let finalColor = `rgb(${r}, ${g}, ${b})`; 
+                    let isAiOverlay = false;
+
+                    if (aiBoxes && aiBoxes.length > 0) {
+                        for (let i = 0; i < aiBoxes.length; i++) {
+                            const box = aiBoxes[i];
+                            const [bx, by, bw, bh] = box.bbox;
+                            const bLeft = Math.floor(bx);
+                            const bTop = Math.floor(by);
+                            const bRight = Math.floor(bx + bw);
+                            const bBottom = Math.floor(by + bh);
+
+                            const isTop = Math.abs(gY - bTop) <= 1 && gX >= bLeft && gX <= bRight;
+                            const isBottom = Math.abs(gY - bBottom) <= 1 && gX >= bLeft && gX <= bRight;
+                            const isLeft = gX === bLeft && gY >= bTop && gY <= bBottom;
+                            const isRight = gX === bRight && gY >= bTop && gY <= bBottom;
+
+                            if (isTop || isBottom || isLeft || isRight) {
+                                isAiOverlay = true;
+                                finalColor = '#ef4444'; 
+                                charToDraw = '+';
+
+                                if (isTop) {
+                                    const label = `[ ${box.class.toUpperCase()} ${Math.round(box.score * 100)}% ]`;
+                                    const textStartX = bLeft + 2;
+                                    if (gX >= textStartX && gX < textStartX + label.length) {
+                                        charToDraw = label[gX - textStartX];
+                                        finalColor = '#10b981'; 
+                                    }
+                                }
+                                break; 
+                            }
+                        }
                     }
 
-                    asciiHTML += `<span style="color: ${finalColor}">${char}</span>`;
+                    if (!isAiOverlay) {
+                        if (mode === 'topology') finalColor = podColor;
+                        else if (mode === 'matrix') finalColor = '#10b981'; 
+                    }
+
+                    asciiHTML += `<span style="color: ${finalColor}; font-weight: ${isAiOverlay ? '900' : 'normal'}">${charToDraw}</span>`;
                 }
                 asciiHTML += '\n'; 
             }

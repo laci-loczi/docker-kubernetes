@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>K8s System Monitor</title>
+    <title>K8s Cluster</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 
@@ -253,11 +255,11 @@
                 </div>
 
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Grid (Load):</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Grid: </span>
                     <select id="gridSize" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
-                        <option value="8">64 Requests (Normal)</option>
-                        <option value="16">256 Requests (Heavy)</option>
-                        <option value="32" style="color: #ef4444; font-weight: bold;">1024 Requests</option>
+                        <option value="8" style="color: #8ccc15;">8 * 8 (Normal)</option>
+                        <option value="16" style="color: #ee9d33;" > 16 * 16 (Heavy)</option>
+                        <option value="32" style="color: #ef4444; font-weight: bold;">32 * 32 (Very Heavy)</option>
                     </select>
                 </div>
 
@@ -279,6 +281,15 @@
                     </h4>
                     <ul id="podList" style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem;">
                         <li style="color: var(--text-muted);">Waiting for job...</li>
+                    </ul>
+                </div>
+                <div id="aiPanel" style="background: var(--bg-color); border: 1px solid #ef4444; border-radius: 8px; padding: 15px; flex-grow: 1; min-width: 250px; display: none;">
+                    <h4 style="margin: 0 0 10px 0; color: #ef4444; border-bottom: 1px solid #ef4444; padding-bottom: 5px; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-crosshairs"></i> AI Engine</span>
+                        <span style="font-size: 0.8rem;" id="aiStatus">Waiting...</span>
+                    </h4>
+                    <ul id="aiList" style="list-style: none; padding: 0; margin: 0; font-size: 0.85rem;">
+                        <li style="color: var(--text-muted);">Neural Network initializing...</li>
                     </ul>
                 </div>
             </div>
@@ -396,7 +407,7 @@
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
-       //experiment
+        //experiment
         let podStats = {};  
         let totalTiles = 0;
         let completedTiles = 0;
@@ -425,6 +436,40 @@
                 canvas.width = GRID_SIZE === 32 ? 320 : 240; 
                 canvas.height = canvas.width;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                // 
+                const aiPanel = document.getElementById('aiPanel');
+                const aiList = document.getElementById('aiList');
+                const aiStatus = document.getElementById('aiStatus');
+                
+                aiPanel.style.display = 'block';
+                aiStatus.textContent = "Scanning...";
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Running COCO-SSD...</li>';
+                
+                //
+                const model = await cocoSsd.load();
+                const predictions = await model.detect(img);
+                
+                aiStatus.textContent = `${predictions.length} objects found`;
+                aiList.innerHTML = '';
+                
+                if (predictions.length === 0) {
+                    aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
+                } else {
+                    predictions.forEach(p => {
+                        aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between;"><strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span></li>`;
+                    });
+                }
+
+                //
+                const scaleX = canvas.width / img.width;
+                const scaleY = canvas.height / img.height;
+                const scaledAiBoxes = predictions.map(p => ({
+                    class: p.class,
+                    score: p.score,
+                    bbox: [p.bbox[0] * scaleX, p.bbox[1] * scaleY, p.bbox[2] * scaleX, p.bbox[3] * scaleY]
+                }));
+                // 
 
                 const renderGrid = document.getElementById('renderGrid');
                 renderGrid.style.display = 'grid';
@@ -457,15 +502,22 @@
                     const rowChunks = []; 
                     
                     for (let col = 0; col < GRID_SIZE; col++) {
-                        const imgData = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
+                        // 
+                        const globalX = col * tileW;
+                        const globalY = row * tileH;
+                        
+                        const imgData = ctx.getImageData(globalX, globalY, tileW, tileH);
                         rowChunks.push({
                             chunkId: `chunk_${row}_${col}`,
                             width: tileW,
                             height: tileH,
+                            globalX: globalX, 
+                            globalY: globalY,
                             pixels: Array.from(imgData.data)
                         });
                     }
-                    socket.emit('start render row', { mode: MODE, chunks: rowChunks });
+                    // 
+                    socket.emit('start render row', { mode: MODE, aiBoxes: scaledAiBoxes, chunks: rowChunks });
                 }
             };
         }
