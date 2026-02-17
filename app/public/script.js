@@ -151,13 +151,14 @@ async function startDistributedRender() {
             aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading MobileNet V3...</li>';
             
             try {
-                //more stable version
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1/+esm');
-                env.allowLocalModels = false; 
+                const transformers = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
+                const pipeline = transformers.pipeline;
+                const env = transformers.env;
 
-                // mobilnetv3
+                env.allowLocalModels = false;
+                env.backends.onnx.wasm.proxy = false; 
+
                 const detector = await pipeline('object-detection', 'Xenova/mobilenet_v3_small_100_224_antialiased');
-                
                 
                 aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Fast analysis...</li>';
 
@@ -172,18 +173,15 @@ async function startDistributedRender() {
                 aiStatus.textContent = `${predictions.length} objects found`;
                 aiList.innerHTML = '';
                 
-                if (predictions.length === 0) {
-                    aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
-                } else {
-                    predictions.forEach(p => {
-                        let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
-                        aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
-                    });
-                }
+                predictions.forEach(p => {
+                    let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
+                    aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
+                });
+
             } catch (err) {
-                console.error("AI hiba:", err);
+                console.error("AI hiba részletei:", err);
                 aiStatus.textContent = "Error";
-                aiList.innerHTML = `<li style="color: #ef4444;">Failed to load AI: ${err.message}</li>`;
+                aiList.innerHTML = `<li style="color: #ef4444;">Failed: ${err.message}</li>`;
             }
 
             const scaleX = canvas.width / img.width;
