@@ -144,19 +144,19 @@ async function startDistributedRender() {
         let predictions = [];
         let scaledAiBoxes = [];
 
+        // ai implement
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
-            aiStatus.textContent = "Booting Transformer...";
-            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading YOLOS Model (~25MB)...</li>';
+            aiStatus.textContent = "Booting Light AI...";
+            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading MobileNet V3...</li>';
             
             try {
-                //
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1');
+                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
                 env.allowLocalModels = false; 
 
-                const detector = await pipeline('object-detection', 'Xenova/yolos-tiny');
+                const detector = await pipeline('object-detection', 'Xenova/mobilenet_v3_small_100_224_antialiased');
                 
-                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing pixels...</li>';
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Fast analysis...</li>';
 
                 const rawPredictions = await detector(img.src, { threshold: 0.15 });
 
@@ -178,8 +178,9 @@ async function startDistributedRender() {
                     });
                 }
             } catch (err) {
-                console.error("AI Error:", err);
-                aiList.innerHTML = '<li style="color: #ef4444;">AI Engine Failed to load.</li>';
+                console.error("AI hiba:", err);
+                aiStatus.textContent = "Error";
+                aiList.innerHTML = `<li style="color: #ef4444;">Failed to load AI: ${err.message}</li>`;
             }
 
             const scaleX = canvas.width / img.width;
@@ -195,7 +196,7 @@ async function startDistributedRender() {
 
         const renderGrid = document.getElementById('renderGrid');
 
-        // === ONLY AI MODE ===
+        // only ai
         if (TASK_MODE === 'ai') {
             renderGrid.style.display = 'flex'; 
             renderGrid.innerHTML = '';
@@ -244,7 +245,7 @@ async function startDistributedRender() {
             return; 
         }
 
-        // === ASCII OR BOTH MODE ===
+        // ascii or ascii plus ai
         renderGrid.style.display = 'grid';
         renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
         renderGrid.style.fontSize = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '5px' : '8px');
