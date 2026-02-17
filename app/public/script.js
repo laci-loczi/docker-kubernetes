@@ -151,7 +151,7 @@ async function startDistributedRender() {
             
             try {
                 //
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
+                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1');
                 env.allowLocalModels = false; 
 
                 const detector = await pipeline('object-detection', 'Xenova/yolos-tiny');
