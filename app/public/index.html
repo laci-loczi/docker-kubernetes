@@ -172,13 +172,12 @@
             min-height: 200px;
         }
 
-        /* === ELEGÁNS TECH STACK MODAL === */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(15, 23, 42, 0.7);
-            backdrop-filter: blur(8px); /* Üveghatású elmosás */
-            display: none; /* Alapból rejtett */
+            backdrop-filter: blur(8px);
+            display: none; 
             justify-content: center;
             align-items: center;
             z-index: 1000;
@@ -254,7 +253,6 @@
 
         .tech-list span { color: var(--text-main); font-weight: 500; }
         
-        /* Gomb a fejlécben */
         .btn-tech {
             border-color: transparent;
             background: rgba(255, 255, 255, 0.03);
@@ -285,17 +283,15 @@
                 <i class="fas fa-tools"></i> Built With...
             </button>
             <button onclick="setMode('normal')">
-                </i> Real Usage
+                <i class="fas fa-chart-line"></i> Real Usage
             </button>
             <button class="active-stress" onclick="setMode('stress')">
-                </i> Stress Test
+                <i class="fas fa-fire"></i> Stress Test
             </button>
         </div>
     </header>
 
     <main class="dashboard-grid">
-        
-        
         <div class="card">
             <div class="card-header">
                 <div>
@@ -337,7 +333,16 @@
             <div style="background: rgba(15, 23, 42, 0.5); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
                 
                 <div>
-                    <input type="file" id="imageInput" accept="image/*" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; max-width: 250px;">
+                    <input type="file" id="imageInput" accept="image/*" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; max-width: 200px;">
+                </div>
+                
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Task:</span>
+                    <select id="taskMode" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
+                        <option value="both">ASCII + AI (K8s + Edge)</option>
+                        <option value="ascii">ASCII Only (K8s)</option>
+                        <option value="ai">Original Image + AI (Edge)</option>
+                    </select>
                 </div>
 
                 <div style="display: flex; gap: 10px; align-items: center;">
@@ -391,10 +396,11 @@
             
             <canvas id="hiddenCanvas" style="display: none;"></canvas>
         </div>
+        
         <div id="techModalOverlay" class="modal-overlay" onclick="if(event.target === this) toggleTechModal(false)">
             <div class="modal-content" id="techModalContent">
                 <div class="modal-header">
-                    <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-sitemap" style="color: var(--accent-mem); margin-right: 10px;"></i> Built using these:</h2>
+                    <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-sitemap" style="color: var(--accent-mem); margin-right: 10px;"></i> System Architecture & Tech Stack</h2>
                     <button class="modal-close" onclick="toggleTechModal(false)"><i class="fas fa-times"></i></button>
                 </div>
                 
@@ -432,7 +438,11 @@
                             <li><span>Chart.js:</span> Live CPU/Memory telemetry visualization.</li>
                         </ul>
                     </div>
-                </div>           
+                </div>
+                
+                <div style="margin-top: 20px; font-size: 0.8rem; color: var(--text-muted); text-align: center; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    Designed for scalable, fault-tolerant, and event-driven computing.
+                </div>
             </div>
         </div>
     </section>
@@ -547,7 +557,6 @@
 
         socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 
-        //experiment
         let podStats = {};  
         let totalTiles = 0;
         let completedTiles = 0;
@@ -559,6 +568,7 @@
             const fileInput = document.getElementById('imageInput');
             if (!fileInput.files || !fileInput.files[0]) { alert("Nincs kiválasztva kép!"); return; }
 
+            const TASK_MODE = document.getElementById('taskMode').value;
             const GRID_SIZE = parseInt(document.getElementById('gridSize').value);
             const MODE = document.getElementById('renderMode').value;
             
@@ -577,41 +587,88 @@
                 canvas.height = canvas.width;
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                // 
                 const aiPanel = document.getElementById('aiPanel');
                 const aiList = document.getElementById('aiList');
                 const aiStatus = document.getElementById('aiStatus');
                 
-                aiPanel.style.display = 'block';
-                aiStatus.textContent = "Scanning...";
-                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Running COCO-SSD...</li>';
-                
-                //
-                const model = await cocoSsd.load();
-                const predictions = await model.detect(img);
-                
-                aiStatus.textContent = `${predictions.length} objects found`;
-                aiList.innerHTML = '';
-                
-                if (predictions.length === 0) {
-                    aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
+                let predictions = [];
+                let scaledAiBoxes = [];
+
+                // if ai
+                if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
+                    aiPanel.style.display = 'block';
+                    aiStatus.textContent = "Scanning...";
+                    aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Running COCO-SSD...</li>';
+                    
+                    const model = await cocoSsd.load();
+                    predictions = await model.detect(img);
+                    
+                    aiStatus.textContent = `${predictions.length} objects found`;
+                    aiList.innerHTML = '';
+                    
+                    if (predictions.length === 0) {
+                        aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
+                    } else {
+                        predictions.forEach(p => {
+                            aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between;"><strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span></li>`;
+                        });
+                    }
+
+                    const scaleX = canvas.width / img.width;
+                    const scaleY = canvas.height / img.height;
+                    scaledAiBoxes = predictions.map(p => ({
+                        class: p.class,
+                        score: p.score,
+                        bbox: [p.bbox[0] * scaleX, p.bbox[1] * scaleY, p.bbox[2] * scaleX, p.bbox[3] * scaleY]
+                    }));
                 } else {
-                    predictions.forEach(p => {
-                        aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between;"><strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span></li>`;
-                    });
+                    aiPanel.style.display = 'none'; 
                 }
 
-                //
-                const scaleX = canvas.width / img.width;
-                const scaleY = canvas.height / img.height;
-                const scaledAiBoxes = predictions.map(p => ({
-                    class: p.class,
-                    score: p.score,
-                    bbox: [p.bbox[0] * scaleX, p.bbox[1] * scaleY, p.bbox[2] * scaleX, p.bbox[3] * scaleY]
-                }));
-                // 
-
                 const renderGrid = document.getElementById('renderGrid');
+
+                // only ai
+                if (TASK_MODE === 'ai') {
+                    renderGrid.style.display = 'flex'; 
+                    renderGrid.innerHTML = '';
+                    
+                    const finalCanvas = document.createElement('canvas');
+                    finalCanvas.width = img.width;
+                    finalCanvas.height = img.height;
+                    finalCanvas.style.maxWidth = '100%';
+                    finalCanvas.style.maxHeight = '100%';
+                    finalCanvas.style.objectFit = 'contain';
+                    
+                    const fctx = finalCanvas.getContext('2d');
+                    fctx.drawImage(img, 0, 0); 
+                    
+                    fctx.lineWidth = 4;
+                    fctx.font = 'bold 18px Inter, sans-serif';
+                    fctx.textBaseline = 'top';
+                    
+                    predictions.forEach(p => {
+                        fctx.strokeStyle = '#ef4444';
+                        fctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
+                        
+                        const label = `${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`;
+                        const textWidth = fctx.measureText(label).width;
+                        
+                        fctx.fillStyle = '#ef4444';
+                        fctx.fillRect(p.bbox[0], p.bbox[1] - 28, textWidth + 10, 28);
+                        
+                        fctx.fillStyle = '#ffffff';
+                        fctx.fillText(label, p.bbox[0] + 5, p.bbox[1] - 24);
+                    });
+                    
+                    renderGrid.appendChild(finalCanvas);
+                    
+                    document.getElementById('progressText').textContent = '100%';
+                    document.getElementById('podList').innerHTML = '<li style="color: #10b981;"><i class="fas fa-microchip"></i> Processed locally via Edge AI</li>';
+                    
+                    return; 
+                }
+
+                // ascii or both
                 renderGrid.style.display = 'grid';
                 renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
                 renderGrid.style.fontSize = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '5px' : '8px');
@@ -642,7 +699,6 @@
                     const rowChunks = []; 
                     
                     for (let col = 0; col < GRID_SIZE; col++) {
-                        // 
                         const globalX = col * tileW;
                         const globalY = row * tileH;
                         
@@ -656,7 +712,6 @@
                             pixels: Array.from(imgData.data)
                         });
                     }
-                    // 
                     socket.emit('start render row', { mode: MODE, aiBoxes: scaledAiBoxes, chunks: rowChunks });
                 }
             };
@@ -723,7 +778,7 @@
                 list.appendChild(li);
             });
         }
-        // modal
+        
         function toggleTechModal(show) {
             const overlay = document.getElementById('techModalOverlay');
             const content = document.getElementById('techModalContent');
@@ -739,7 +794,7 @@
                 content.style.transform = 'translateY(20px)';
                 setTimeout(() => {
                     overlay.style.display = 'none';
-                }, 300); t
+                }, 300);
             }
         }
     </script>
