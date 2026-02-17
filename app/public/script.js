@@ -113,10 +113,10 @@ let completedTiles = 0;
 let leaderboardTimeout = null; 
 
 async function startDistributedRender() {
-    if (!isSystemOnline) { alert("🚨 Rendszer offline!"); return; }
+    if (!isSystemOnline) { alert("System offline!"); return; }
 
     const fileInput = document.getElementById('imageInput');
-    if (!fileInput.files || !fileInput.files[0]) { alert("Nincs kiválasztva kép!"); return; }
+    if (!fileInput.files || !fileInput.files[0]) { alert("No image selected!"); return; }
 
     const TASK_MODE = document.getElementById('taskMode').value;
     const GRID_SIZE = parseInt(document.getElementById('gridSize').value);
@@ -127,10 +127,12 @@ async function startDistributedRender() {
     podStats = {};
     updateLeaderboard();
 
+    const objectUrl = URL.createObjectURL(fileInput.files[0]);
     const img = new Image();
-    img.src = URL.createObjectURL(fileInput.files[0]);
+    img.src = objectUrl;
     
     img.onload = async () => {
+        URL.revokeObjectURL(objectUrl); // free the blob URL 
         const canvas = document.getElementById('hiddenCanvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         canvas.width = GRID_SIZE === 32 ? 320 : 240; 
@@ -148,16 +150,17 @@ async function startDistributedRender() {
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
             aiStatus.textContent = "Booting Edge AI...";
-            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading DETR ResNet-50...</li>';
+            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading YOLOS-tiny...</li>';
             
             try {
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
-
-                env.allowLocalModels = false;
-
-                const detector = await pipeline('object-detection', 'Xenova/detr-resnet-50');
+                if (!window._detectorPipeline) {
+                    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
+                    env.allowLocalModels = false;
+                    window._detectorPipeline = await pipeline('object-detection', 'Xenova/yolos-tiny');
+                }
+                const detector = window._detectorPipeline;
                 
-                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Fast analysis...</li>';
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing...</li>';
 
                 const rawPredictions = await detector(img.src, { threshold: 0.5, percentage: false });
 
@@ -278,13 +281,14 @@ async function startDistributedRender() {
                 const globalY = row * tileH;
                 
                 const imgData = ctx.getImageData(globalX, globalY, tileW, tileH);
+                const b64 = btoa(String.fromCharCode(...imgData.data));
                 rowChunks.push({
                     chunkId: `chunk_${row}_${col}`,
                     width: tileW,
                     height: tileH,
-                    globalX: globalX, 
+                    globalX: globalX,
                     globalY: globalY,
-                    pixels: Array.from(imgData.data)
+                    pixels: b64
                 });
             }
             socket.emit('start render row', { mode: MODE, aiBoxes: scaledAiBoxes, chunks: rowChunks });
@@ -295,7 +299,9 @@ async function startDistributedRender() {
 socket.on('render result', (data) => {
     const tileDiv = document.getElementById(data.chunkId);
     if (tileDiv) {
-        tileDiv.innerHTML = data.html;
+        const tmp = document.createElement('template');
+        tmp.innerHTML = data.html;
+        tileDiv.replaceChildren(tmp.content);
         
         const pName = data.podName;
         if (!podStats[pName]) podStats[pName] = { count: 0, color: data.podColor };
