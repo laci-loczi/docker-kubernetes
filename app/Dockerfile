@@ -2,7 +2,7 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY package.json .
 
 # --omit=dev keeps devDependencies out of the image
 RUN npm ci --omit=dev
