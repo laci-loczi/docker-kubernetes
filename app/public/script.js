@@ -150,7 +150,8 @@ async function startDistributedRender() {
             aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading YOLOS Model (~25MB)...</li>';
             
             try {
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+                //
+                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
                 env.allowLocalModels = false; 
 
                 const detector = await pipeline('object-detection', 'Xenova/yolos-tiny');
@@ -194,7 +195,7 @@ async function startDistributedRender() {
 
         const renderGrid = document.getElementById('renderGrid');
 
-        // only ai
+        // === ONLY AI MODE ===
         if (TASK_MODE === 'ai') {
             renderGrid.style.display = 'flex'; 
             renderGrid.innerHTML = '';
@@ -243,7 +244,7 @@ async function startDistributedRender() {
             return; 
         }
 
-        // ascii or both
+        // === ASCII OR BOTH MODE ===
         renderGrid.style.display = 'grid';
         renderGrid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
         renderGrid.style.fontSize = GRID_SIZE === 32 ? '3px' : (GRID_SIZE === 16 ? '5px' : '8px');
