@@ -144,7 +144,6 @@ async function startDistributedRender() {
         let predictions = [];
         let scaledAiBoxes = [];
 
-        // if ai
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
             aiStatus.textContent = "Booting Transformer...";
@@ -174,9 +173,6 @@ async function startDistributedRender() {
                 } else {
                     predictions.forEach(p => {
                         let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
-                        if (isGdprEnabled && gdprTargets.includes(p.class)) {
-                            itemHTML += ' <i class="fas fa-shield-alt" title="Anonymized" style="margin-left:5px;"></i>';
-                        }
                         aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
                     });
                 }
