@@ -147,22 +147,42 @@ async function startDistributedRender() {
         // if ai
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
-            aiStatus.textContent = "Scanning...";
-            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Running COCO-SSD...</li>';
+            aiStatus.textContent = "Booting Transformer...";
+            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading YOLOS Model (~25MB)...</li>';
             
-            const model = await cocoSsd.load();
-            //testing the results...
-            predictions = await model.detect(img, 50, 0.25);
-            
-            aiStatus.textContent = `${predictions.length} objects found`;
-            aiList.innerHTML = '';
-            
-            if (predictions.length === 0) {
-                aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
-            } else {
-                predictions.forEach(p => {
-                    aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between;"><strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span></li>`;
-                });
+            try {
+                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+                env.allowLocalModels = false; 
+
+                const detector = await pipeline('object-detection', 'Xenova/yolos-tiny');
+                
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing pixels...</li>';
+
+                const rawPredictions = await detector(img.src, { threshold: 0.15 });
+
+                predictions = rawPredictions.map(p => ({
+                    class: p.label,
+                    score: p.score,
+                    bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
+                }));
+
+                aiStatus.textContent = `${predictions.length} objects found`;
+                aiList.innerHTML = '';
+                
+                if (predictions.length === 0) {
+                    aiList.innerHTML = '<li style="color: var(--text-muted);">No objects detected.</li>';
+                } else {
+                    predictions.forEach(p => {
+                        let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
+                        if (isGdprEnabled && gdprTargets.includes(p.class)) {
+                            itemHTML += ' <i class="fas fa-shield-alt" title="Anonymized" style="margin-left:5px;"></i>';
+                        }
+                        aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
+                    });
+                }
+            } catch (err) {
+                console.error("AI Error:", err);
+                aiList.innerHTML = '<li style="color: #ef4444;">AI Engine Failed to load.</li>';
             }
 
             const scaleX = canvas.width / img.width;
