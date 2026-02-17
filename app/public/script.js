@@ -132,12 +132,13 @@ async function startDistributedRender() {
     img.src = objectUrl;
     
     img.onload = async () => {
-        URL.revokeObjectURL(objectUrl); // free the blob URL 
         const canvas = document.getElementById('hiddenCanvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         canvas.width = GRID_SIZE === 32 ? 320 : 240; 
         canvas.height = canvas.width;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        URL.revokeObjectURL(objectUrl);
 
         const aiPanel = document.getElementById('aiPanel');
         const aiList = document.getElementById('aiList');
@@ -162,7 +163,7 @@ async function startDistributedRender() {
                 
                 aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing...</li>';
 
-                const rawPredictions = await detector(img.src, { threshold: 0.5, percentage: false });
+                const rawPredictions = await detector(canvas.toDataURL(), { threshold: 0.5, percentage: false });
 
                 predictions = rawPredictions.map(p => ({
                     class: p.label,
