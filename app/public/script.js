@@ -151,10 +151,13 @@ async function startDistributedRender() {
             aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading MobileNet V3...</li>';
             
             try {
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm');
+                //more stable version
+                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1/+esm');
                 env.allowLocalModels = false; 
 
+                // mobilnetv3
                 const detector = await pipeline('object-detection', 'Xenova/mobilenet_v3_small_100_224_antialiased');
+                
                 
                 aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Fast analysis...</li>';
 
