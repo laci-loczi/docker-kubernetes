@@ -151,7 +151,8 @@ async function startDistributedRender() {
             aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Running COCO-SSD...</li>';
             
             const model = await cocoSsd.load();
-            predictions = await model.detect(img);
+            //testing the results...
+            predictions = await model.detect(img, 50, 0.25);
             
             aiStatus.textContent = `${predictions.length} objects found`;
             aiList.innerHTML = '';
