@@ -21,6 +21,12 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3000
+        #==
+        securityContext:
+          runAsNonRoot: tru
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+        #==
         env:
           - name: ADMIN_PASSWORD 
             valueFrom:

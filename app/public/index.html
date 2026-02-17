@@ -171,6 +171,98 @@
             position: relative;
             min-height: 200px;
         }
+
+        /* === ELEGÁNS TECH STACK MODAL === */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px); /* Üveghatású elmosás */
+            display: none; /* Alapból rejtett */
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 30px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s;
+            padding: 0;
+        }
+
+        .modal-close:hover { color: var(--text-main); }
+
+        .tech-grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .tech-category {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .tech-category h4 {
+            color: var(--text-main);
+            margin: 0 0 10px 0;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tech-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .tech-list span { color: var(--text-main); font-weight: 500; }
+        
+        /* Gomb a fejlécben */
+        .btn-tech {
+            border-color: transparent;
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .btn-tech:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-color);
+        }
         @media (max-width: 768px) {
             body { padding: 20px; }
             header { flex-direction: column; align-items: flex-start; gap: 20px; }
@@ -189,6 +281,9 @@
         </div>
         
         <div class="controls">
+            <button class="btn-tech" onclick="toggleTechModal(true)">
+                <i class="fas fa-tools"></i> Built With...
+            </button>
             <button onclick="setMode('normal')">
                 </i> Real Usage
             </button>
@@ -250,7 +345,7 @@
                     <select id="renderMode" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
                         <option value="color">True Color (Basic)</option>
                         <option value="topology">Topology Map (Pod's color)</option>
-                        <option value="matrix">Matrix Rain</option>
+                        <option value="matrix">Edgy Matrix Rain</option>
                     </select>
                 </div>
 
@@ -296,7 +391,52 @@
             
             <canvas id="hiddenCanvas" style="display: none;"></canvas>
         </div>
+        <div id="techModalOverlay" class="modal-overlay" onclick="if(event.target === this) toggleTechModal(false)">
+            <div class="modal-content" id="techModalContent">
+                <div class="modal-header">
+                    <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600;"><i class="fas fa-sitemap" style="color: var(--accent-mem); margin-right: 10px;"></i> Built using these:</h2>
+                    <button class="modal-close" onclick="toggleTechModal(false)"><i class="fas fa-times"></i></button>
+                </div>
+                
+                <div class="tech-grid-layout">
+                    <div class="tech-category">
+                        <h4><i class="fas fa-cubes" style="color: #3b82f6;"></i> Cloud & Infrastructure</h4>
+                        <ul class="tech-list">
+                            <li><span>Docker</span></li>
+                            <li></li><span>Kubernetes (K8s)</span></li>                         
+                            <li><span>Jenkins:</span> CI/CD pipeline.</li>
+                        </ul>
+                    </div>
+
+                    <div class="tech-category">
+                        <h4><i class="fas fa-shield-alt" style="color: #10b981;"></i> Network & Security</h4>
+                        <ul class="tech-list">
+                            <li><span>Cloudflare Tunnels:</span> Zero Trust secure edge routing.</li>
+                            <li><span>NGINX:</span> Reverse proxy & Load balancing.</li>
+                        </ul>
+                    </div>
+
+                    <div class="tech-category">
+                        <h4><i class="fas fa-server" style="color: #ef4444;"></i> Backend & Messaging</h4>
+                        <ul class="tech-list">
+                            <li><span>Node.js:</span> Async processing, DDoS rate limiting.</li>
+                            <li><span>Redis:</span> Message Broker (Pub/Sub & Task Queues).</li>
+                            <li><span>Socket.io:</span> Real-time bi-directional streaming.</li>
+                        </ul>
+                    </div>
+
+                    <div class="tech-category">
+                        <h4><i class="fas fa-brain" style="color: #8b5cf6;"></i> AI & Frontend</h4>
+                        <ul class="tech-list">
+                            <li><span>TensorFlow.js (COCO-SSD):</span> Real-time client-side Edge AI inference.</li>
+                            <li><span>Chart.js:</span> Live CPU/Memory telemetry visualization.</li>
+                        </ul>
+                    </div>
+                </div>           
+            </div>
+        </div>
     </section>
+    
     <script>
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = '#334155';
@@ -582,6 +722,25 @@
                 `;
                 list.appendChild(li);
             });
+        }
+        // modal
+        function toggleTechModal(show) {
+            const overlay = document.getElementById('techModalOverlay');
+            const content = document.getElementById('techModalContent');
+            
+            if (show) {
+                overlay.style.display = 'flex';
+                setTimeout(() => {
+                    overlay.style.opacity = '1';
+                    content.style.transform = 'translateY(0)';
+                }, 10);
+            } else {
+                overlay.style.opacity = '0';
+                content.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                }, 300); t
+            }
         }
     </script>
 </body>
