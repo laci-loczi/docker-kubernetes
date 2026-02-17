@@ -653,11 +653,19 @@
                         const label = `${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`;
                         const textWidth = fctx.measureText(label).width;
                         
+                        let bgY = p.bbox[1] - 28;
+                        let textY = p.bbox[1] - 22;
+                        
+                        if (bgY < 0) {
+                            bgY = p.bbox[1]; 
+                            textY = p.bbox[1] + 6;
+                        }
+                        
                         fctx.fillStyle = '#ef4444';
-                        fctx.fillRect(p.bbox[0], p.bbox[1] - 28, textWidth + 10, 28);
+                        fctx.fillRect(p.bbox[0], bgY, textWidth + 10, 28);
                         
                         fctx.fillStyle = '#ffffff';
-                        fctx.fillText(label, p.bbox[0] + 5, p.bbox[1] - 24);
+                        fctx.fillText(label, p.bbox[0] + 5, textY);
                     });
                     
                     renderGrid.appendChild(finalCanvas);
