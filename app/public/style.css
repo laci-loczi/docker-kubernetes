@@ -269,6 +269,9 @@
             font-variant-numeric: tabular-nums;
             color: var(--text-main);
             font-weight: 600;
+            min-width: 4.5rem;
+            text-align: right;
+            flex-shrink: 0;
         }
         .ai-memory-row.ai-memory-active {
             border-color: rgba(239, 68, 68, 0.4);

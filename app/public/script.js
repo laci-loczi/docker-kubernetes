@@ -127,26 +127,26 @@ function setAiMemoryUI(state, valueMB) {
     const valueEl = document.getElementById('aiMemoryValue');
     const labelEl = document.getElementById('aiMemoryLabel');
     if (!container || !valueEl) return;
+    const displayValue = valueMB != null ? valueMB + ' MB' : 'N/A';
     if (state === 'idle') {
         container.classList.remove('ai-memory-active');
         if (labelEl) labelEl.textContent = 'Memory';
-        valueEl.textContent = valueMB != null ? `${valueMB} MB` : '—';
+        valueEl.textContent = displayValue;
     } else if (state === 'analyzing') {
         container.classList.add('ai-memory-active');
         if (labelEl) labelEl.textContent = 'Memory (analyzing)';
-        valueEl.textContent = valueMB != null ? `${valueMB} MB` : '—';
+        valueEl.textContent = displayValue;
     }
 }
 
 function startAiMemorySampling() {
-    const valueEl = document.getElementById('aiMemoryValue');
     const hasHeap = getBrowserHeapMB() !== null;
     setAiMemoryUI('analyzing', hasHeap ? parseFloat(getBrowserHeapMB()) : null);
-    if (!hasHeap) return;
     if (aiMemoryInterval) clearInterval(aiMemoryInterval);
     aiMemoryInterval = setInterval(() => {
+        const valueEl = document.getElementById('aiMemoryValue');
         const mb = getBrowserHeapMB();
-        if (mb !== null && valueEl) valueEl.textContent = mb + ' MB';
+        if (valueEl) valueEl.textContent = (mb != null ? mb + ' MB' : 'N/A');
     }, 200);
 }
 
