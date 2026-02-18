@@ -110,7 +110,53 @@ socket.on('auth error', (msg) => alert("Authentication Failed: " + msg));
 let podStats = {};  
 let totalTiles = 0;
 let completedTiles = 0;
-let leaderboardTimeout = null; 
+let leaderboardTimeout = null;
+
+// --- AI: real-time heap display (only while image is being analyzed) ---
+let aiMemoryInterval = null;
+
+function getBrowserHeapMB() {
+    if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
+        return (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(1);
+    }
+    return null;
+}
+
+function setAiMemoryUI(state, valueMB) {
+    const container = document.getElementById('aiMemory');
+    const valueEl = document.getElementById('aiMemoryValue');
+    const labelEl = document.getElementById('aiMemoryLabel');
+    if (!container || !valueEl) return;
+    if (state === 'idle') {
+        container.classList.remove('ai-memory-active');
+        if (labelEl) labelEl.textContent = 'Memory';
+        valueEl.textContent = valueMB != null ? `${valueMB} MB` : '—';
+    } else if (state === 'analyzing') {
+        container.classList.add('ai-memory-active');
+        if (labelEl) labelEl.textContent = 'Memory (analyzing)';
+        valueEl.textContent = valueMB != null ? `${valueMB} MB` : '—';
+    }
+}
+
+function startAiMemorySampling() {
+    const valueEl = document.getElementById('aiMemoryValue');
+    const hasHeap = getBrowserHeapMB() !== null;
+    setAiMemoryUI('analyzing', hasHeap ? parseFloat(getBrowserHeapMB()) : null);
+    if (!hasHeap) return;
+    if (aiMemoryInterval) clearInterval(aiMemoryInterval);
+    aiMemoryInterval = setInterval(() => {
+        const mb = getBrowserHeapMB();
+        if (mb !== null && valueEl) valueEl.textContent = mb + ' MB';
+    }, 200);
+}
+
+function stopAiMemorySampling(peakMB) {
+    if (aiMemoryInterval) {
+        clearInterval(aiMemoryInterval);
+        aiMemoryInterval = null;
+    }
+    setAiMemoryUI('idle', peakMB != null ? parseFloat(peakMB) : getBrowserHeapMB() !== null ? parseFloat(getBrowserHeapMB()) : null);
+} 
 
 async function startDistributedRender() {
     if (!isSystemOnline) { alert("ðŸš¨ Rendszer offline!"); return; }
@@ -149,16 +195,14 @@ async function startDistributedRender() {
             aiPanel.style.display = 'block';
             aiStatus.textContent = "Booting Edge AI...";
             aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading DETR ResNet-50...</li>';
-            
+            startAiMemorySampling();
+
             try {
                 const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
-
                 env.allowLocalModels = false;
-
                 const detector = await pipeline('object-detection', 'Xenova/detr-resnet-50');
-                
-                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Fast analysis...</li>';
 
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing...</li>';
                 const rawPredictions = await detector(img.src, { threshold: 0.5, percentage: false });
 
                 predictions = rawPredictions.map(p => ({
@@ -167,16 +211,19 @@ async function startDistributedRender() {
                     bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
                 }));
 
+                const peakMB = getBrowserHeapMB();
+                stopAiMemorySampling(peakMB);
+
                 aiStatus.textContent = `${predictions.length} objects found`;
                 aiList.innerHTML = '';
-                
                 predictions.forEach(p => {
                     let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
                     aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
                 });
 
             } catch (err) {
-                console.error("AI hiba rÃ©szletei:", err);
+                console.error("AI error:", err);
+                stopAiMemorySampling(getBrowserHeapMB());
                 aiStatus.textContent = "Error";
                 aiList.innerHTML = `<li style="color: #ef4444;">Failed: ${err.message}</li>`;
             }
@@ -189,7 +236,8 @@ async function startDistributedRender() {
                 bbox: [p.bbox[0] * scaleX, p.bbox[1] * scaleY, p.bbox[2] * scaleX, p.bbox[3] * scaleY]
             }));
         } else {
-            aiPanel.style.display = 'none'; 
+            aiPanel.style.display = 'none';
+            stopAiMemorySampling(null);
         }
 
         const renderGrid = document.getElementById('renderGrid');
