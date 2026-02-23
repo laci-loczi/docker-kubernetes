@@ -76,43 +76,22 @@ let myConnectedPodName = "";
 socket.on('init info', (data) => {
     if(data && data.hostname) {
         myConnectedPodName = data.hostname; 
-        updatePodInfo(data.hostname); // update pod name
+        updatePodInfo(data.hostname);
     }
 });
 
-let currentAiPod = null;
+socket.on('stats update', (data) => {
+    if (data.hostname !== myConnectedPodName) return; // filter only my connected pod stats
 
-socket.on('stats update', (stats) => {
-    updatePodList(stats); 
-
-    const aiMonitor = document.getElementById('ai-active-pod');
-    const progressBar = document.getElementById('ai-progress-bar');
-
-    if (stats.aiStatus === 'working') {
-        currentAiPod = stats.aiPod;
-        aiMonitor.innerHTML = `Active: <span class="status-working">${stats.aiPod}</span>`;
-        progressBar.style.width = '100%'; 
-    } else if (stats.aiStatus === 'idle') {
-        currentAiPod = null;
-        aiMonitor.innerHTML = `Status: <span class="status-idle">Waiting for task...</span>`;
-        progressBar.style.width = '0%';
-    }
-
-    document.querySelectorAll('.pod-item').forEach(item => {
-        const podName = item.dataset.hostname; 
-        if (podName === currentAiPod) {
-            item.classList.add('is-processing-ai');
-            if (stats.hostname === currentAiPod) {
-                document.getElementById('ai-active-pod').innerHTML += 
-                    `<br><small>CPU: ${stats.cpu}% | RAM: ${stats.mem}%</small>`;
-            }
-        } else {
-            item.classList.remove('is-processing-ai');
-        }
-    });
+    const usedMB = formatBytesToMB(data.memUsed); // used memory
+    const totalMB = formatBytesToMB(data.memTotal); // total memory
+    document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`; // used memory / total memory
+    
+    updateChart(cpuChart, data.cpu, 'cpuValue'); // update cpu chart
+    updateChart(memChart, data.mem, 'memValue'); // update memory chart
 });
 
-function updatePodInfo(name) { document.getElementById('podName').textContent = name; } // update pod name
+function updatePodInfo(name) { document.getElementById('podName').textContent = name; }
 
 function updateChart(chart, value, valueElementId) {
     document.getElementById(valueElementId).innerHTML = `${value}<span class="unit">%</span>`;
@@ -138,6 +117,7 @@ let totalTiles = 0;
 let completedTiles = 0;
 let leaderboardTimeout = null;
 
+// --- AI: real-time heap display (only while image is being analyzed) ---
 let aiMemoryInterval = null;
 
 function getBrowserHeapMB() {

@@ -7,7 +7,6 @@ const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
 const Redis = require('ioredis');
-const { Blob } = require('buffer'); // <-- ÚJ SOR: Importáljuk a Blob-ot a biztonság kedvéért
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
@@ -211,20 +210,18 @@ if (ROLE === 'worker' || ROLE === 'all') {
             taskRaw = await redisAiWorker.brpop('ai_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
-                const workerName = os.hostname();
-
-                redisMaster.publish('system_stats', JSON.stringify({
-                    aiStatus: 'working',
-                    aiPod: workerName,
-                    taskId: task.taskId
-                }));
-
+                console.log(`[WORKER ${os.hostname()}] AI Kép elemzése elindult...`);
+                
                 const detector = await getAiPipeline();
+                
+                // --- MÓDOSÍTOTT RÉSZ KEZDETE ---
+                // Eltávolítjuk a Base64 fejlécet és Node.js Bufferré alakítjuk a képet
                 const base64Data = task.image.replace(/^data:image\/\w+;base64,/, "");
                 const imageBuffer = Buffer.from(base64Data, 'base64');
-                const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
                 
-                const rawPredictions = await detector(imageBlob, { threshold: 0.5, percentage: false });
+                // Átadjuk az imageBuffer-t a string helyett
+                const rawPredictions = await detector(imageBuffer, { threshold: 0.5, percentage: false });
+                // --- MÓDOSÍTOTT RÉSZ VÉGE ---
                 
                 const predictions = rawPredictions.map(p => ({
                     class: p.label,
@@ -232,15 +229,13 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
                 }));
 
+                // Eredmény visszaküldése az API node-nak
                 redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ predictions }));
-                redisMaster.publish('system_stats', JSON.stringify({
-                    aiStatus: 'idle',
-                    aiPod: null
-                }));
+                console.log(`[WORKER ${os.hostname()}] AI Elemzés kész, eredmény elküldve.`);
             }
         } catch (err) {
             console.error("AI Worker hiba:", err);
-            redisMaster.publish('system_stats', JSON.stringify({ aiStatus: 'idle', aiPod: null }));
+            // Hiba esetén is küldünk választ, hogy a kliens ne lógjon a levegőben
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
                 redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ error: err.message }));
