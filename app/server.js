@@ -94,16 +94,12 @@ if (ROLE === 'api' || ROLE === 'all') {
         });
         socket.on('analyze image', async (data, callback) => {
             const taskId = 'ai_' + crypto.randomUUID();
-            
-            await redisMaster.lpush('ai_tasks', JSON.stringify({
-                taskId: taskId,
-                image: data.image // a base64 string
-            }));
-
             const responseChannel = `ai_result_${taskId}`;
-            const sub = new Redis({ host: REDIS_HOST, port: 6379 });
             
-            sub.subscribe(responseChannel);
+            // 1. LÉPÉS: ELŐBB feliratkozunk a válaszra!
+            const sub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+            await sub.subscribe(responseChannel);
+            
             sub.on('message', (channel, message) => {
                 if (channel === responseChannel) {
                     callback(JSON.parse(message)); 
@@ -111,6 +107,12 @@ if (ROLE === 'api' || ROLE === 'all') {
                     sub.quit();
                 }
             });
+
+            // 2. LÉPÉS: CSAK UTÁNA dobjuk be a feladatot a közösbe!
+            await redisMaster.lpush('ai_tasks', JSON.stringify({
+                taskId: taskId,
+                image: data.image
+            }));
         });
 
         socket.on('disconnect', () => { delete clients[socket.id]; });
