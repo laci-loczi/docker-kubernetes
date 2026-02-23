@@ -4,14 +4,14 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY --chown=node:node package.json package-lock.json* ./
 
 # npm ci sokkal gyorsabb és determinisztikusabb productionben
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 COPY . .
 
-RUN chown -R node:node /app
+COPY --chown=node:node . .
 
 USER node
 
