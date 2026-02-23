@@ -212,7 +212,9 @@ async function startDistributedRender() {
                         if (response.error) reject(new Error(response.error));
                         else resolve(response.predictions);
                     });
-                    setTimeout(() => reject(new Error("AI Timeout (Túl sokáig tartott)")), 30000);
+                    
+                    // more timeout for ai
+                    setTimeout(() => reject(new Error("AI Timeout (Túl sokáig tartott az elemzés)")), 90000);
                 });
 
                 predictions = rawPredictions;

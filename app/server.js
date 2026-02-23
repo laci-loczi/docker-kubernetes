@@ -18,6 +18,8 @@ redisMaster.on('error', (err) => console.error('Redis Master hiba (keresem a kap
 redisWorker.on('error', (err) => console.error('Redis Worker hiba (keresem a kapcsolatot...)'));
 redisSub.on('error', (err) => console.error('Redis Sub hiba (keresem a kapcsolatot...)'));
 
+const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+
 process.on('uncaughtException', (err) => {
     console.error('Kritikus hiba:', err.message);
 });
@@ -199,10 +201,10 @@ if (ROLE === 'worker' || ROLE === 'all') {
         }
         return objectDetectorPipeline;
     }
-    
+
     async function aiWorkerLoop() {
         try {
-            const taskRaw = await redisWorker.brpop('ai_tasks', 1); // 1 mp timeout
+            const taskRaw = await redisAiWorker.brpop('ai_tasks', 1);// 1 mp timeout
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
                 console.log(`[WORKER ${os.hostname()}] AI Kép elemzése elindult...`);
