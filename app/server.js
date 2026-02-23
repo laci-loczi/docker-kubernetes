@@ -7,6 +7,7 @@ const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
 const Redis = require('ioredis');
+const { Blob } = require('buffer'); // <-- ÚJ SOR: Importáljuk a Blob-ot a biztonság kedvéért
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
@@ -215,12 +216,15 @@ if (ROLE === 'worker' || ROLE === 'all') {
                 const detector = await getAiPipeline();
                 
                 // --- MÓDOSÍTOTT RÉSZ KEZDETE ---
-                // Eltávolítjuk a Base64 fejlécet és Node.js Bufferré alakítjuk a képet
                 const base64Data = task.image.replace(/^data:image\/\w+;base64,/, "");
                 const imageBuffer = Buffer.from(base64Data, 'base64');
                 
-                // Átadjuk az imageBuffer-t a string helyett
-                const rawPredictions = await detector(imageBuffer, { threshold: 0.5, percentage: false });
+                // A Transformers.js nem fogadja el a nyers Buffert (objectnek látja és eldobja),
+                // ezért be kell csomagolnunk egy szabványos Blob objektumba:
+                const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
+                
+                // Átadjuk a Blob-ot az AI modellnek
+                const rawPredictions = await detector(imageBlob, { threshold: 0.5, percentage: false });
                 // --- MÓDOSÍTOTT RÉSZ VÉGE ---
                 
                 const predictions = rawPredictions.map(p => ({
