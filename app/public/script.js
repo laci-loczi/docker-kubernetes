@@ -190,54 +190,54 @@ async function startDistributedRender() {
         let predictions = [];
         let scaledAiBoxes = [];
 
-        // ai implement
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
-            aiStatus.textContent = "Booting Edge AI...";
-            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Loading DETR ResNet-50...</li>';
-            startAiMemorySampling();
+            aiStatus.textContent = "Kérése elküldve a K8s Workernek...";
+            aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-cloud-upload-alt"></i> Kép küldése az AI node-nak...</li>';
+            
+            const aiCanvas = document.createElement('canvas');
+            const maxDim = 640;
+            let scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+            aiCanvas.width = img.width * scale;
+            aiCanvas.height = img.height * scale;
+            aiCanvas.getContext('2d').drawImage(img, 0, 0, aiCanvas.width, aiCanvas.height);
+            
+            const imageDataBase64 = aiCanvas.toDataURL('image/jpeg', 0.8);
 
             try {
-                const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
-                env.allowLocalModels = false;
-                const detector = await pipeline('object-detection', 'Xenova/detr-resnet-50');
+                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Worker node elemzi a képet...</li>';
+                
+                const rawPredictions = await new Promise((resolve, reject) => {
+                    socket.emit('analyze image', { image: imageDataBase64 }, (response) => {
+                        if (response.error) reject(new Error(response.error));
+                        else resolve(response.predictions);
+                    });
+                    setTimeout(() => reject(new Error("AI Timeout (Túl sokáig tartott)")), 30000);
+                });
 
-                aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Analyzing...</li>';
-                const rawPredictions = await detector(img.src, { threshold: 0.5, percentage: false });
+                predictions = rawPredictions;
 
-                predictions = rawPredictions.map(p => ({
-                    class: p.label,
-                    score: p.score,
-                    bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
-                }));
-
-                const peakMB = getBrowserHeapMB();
-                stopAiMemorySampling(peakMB);
-
-                aiStatus.textContent = `${predictions.length} objects found`;
+                aiStatus.textContent = `${predictions.length} objektum találva`;
                 aiList.innerHTML = '';
                 predictions.forEach(p => {
                     let itemHTML = `<strong>${p.class.toUpperCase()}</strong> <span>${Math.round(p.score * 100)}%</span>`;
                     aiList.innerHTML += `<li style="margin-bottom: 8px; background: rgba(239, 68, 68, 0.1); padding: 5px; border-left: 3px solid #ef4444; display: flex; justify-content: space-between; align-items:center;">${itemHTML}</li>`;
                 });
 
-            } catch (err) {
-                console.error("AI error:", err);
-                stopAiMemorySampling(getBrowserHeapMB());
-                aiStatus.textContent = "Error";
-                aiList.innerHTML = `<li style="color: #ef4444;">Failed: ${err.message}</li>`;
-            }
+                const boxScaleX = canvas.width / aiCanvas.width;
+                const boxScaleY = canvas.height / aiCanvas.height;
+                scaledAiBoxes = predictions.map(p => ({
+                    class: p.class,
+                    score: p.score,
+                    bbox: [p.bbox[0] * boxScaleX, p.bbox[1] * boxScaleY, p.bbox[2] * boxScaleX, p.bbox[3] * boxScaleY]
+                }));
 
-            const scaleX = canvas.width / img.width;
-            const scaleY = canvas.height / img.height;
-            scaledAiBoxes = predictions.map(p => ({
-                class: p.class,
-                score: p.score,
-                bbox: [p.bbox[0] * scaleX, p.bbox[1] * scaleY, p.bbox[2] * scaleX, p.bbox[3] * scaleY]
-            }));
-        } else {
-            aiPanel.style.display = 'none';
-            stopAiMemorySampling(null);
+            } catch (err) {
+                console.error("Hiba a backend AI során:", err);
+                aiStatus.textContent = "Hiba";
+                aiList.innerHTML = `<li style="color: #ef4444;">Failed: ${err.message}</li>`;
+                return;
+            }
         }
 
         const renderGrid = document.getElementById('renderGrid');

@@ -32,7 +32,6 @@ let startTime = process.hrtime.bigint();
 let currentMode = 'normal';
 let memoryHog = [];
 
-// Globális Redis Sub feliratkozások (API és Worker is hallgatja a módot)
 redisSub.subscribe('system_mode');
 redisSub.on('message', (channel, message) => {
     if (channel === 'system_mode') {
@@ -45,9 +44,7 @@ redisSub.on('message', (channel, message) => {
     }
 });
 
-// ==========================================
-// API ROLE (Express + Socket.io + Frontend kiszolgálás)
-// ==========================================
+
 if (ROLE === 'api' || ROLE === 'all') {
     const clients = {}; 
     const app = express();
@@ -71,7 +68,6 @@ if (ROLE === 'api' || ROLE === 'all') {
                 socket.emit('auth error', 'Hibás jelszó!');
                 return;
             }
-            // Szólunk minden node-nak (API-nak és Workernek is) a Redis-en keresztül
             redisMaster.publish('system_mode', JSON.stringify({ mode: data.mode }));
         });
 
@@ -94,11 +90,30 @@ if (ROLE === 'api' || ROLE === 'all') {
             });
             await pipeline.exec();
         });
+        socket.on('analyze image', async (data, callback) => {
+            const taskId = 'ai_' + crypto.randomUUID();
+            
+            await redisMaster.lpush('ai_tasks', JSON.stringify({
+                taskId: taskId,
+                image: data.image // a base64 string
+            }));
+
+            const responseChannel = `ai_result_${taskId}`;
+            const sub = new Redis({ host: REDIS_HOST, port: 6379 });
+            
+            sub.subscribe(responseChannel);
+            sub.on('message', (channel, message) => {
+                if (channel === responseChannel) {
+                    callback(JSON.parse(message)); 
+                    sub.unsubscribe(responseChannel);
+                    sub.quit();
+                }
+            });
+        });
 
         socket.on('disconnect', () => { delete clients[socket.id]; });
     });
 
-    // API figyeli a Worker-ek renderelését ÉS a telemetria adatait
     redisSub.psubscribe('job_results_*');
     redisSub.subscribe('system_stats');
 
@@ -111,7 +126,7 @@ if (ROLE === 'api' || ROLE === 'all') {
 
     redisSub.on('message', (channel, message) => {
         if (channel === 'system_stats') {
-            io.emit('stats update', JSON.parse(message)); // Kiküldjük a dashboardnak
+            io.emit('stats update', JSON.parse(message)); 
         }
     });
 
@@ -120,9 +135,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     });
 }
 
-// ==========================================
-// KÖZÖS LOGIKA (Telemetria és Stresszteszt - minden node futtatja)
-// ==========================================
+
 function generateLoad() {
     crypto.pbkdf2Sync('titkos', 'só', 1000, 64, 'sha512');
     if (currentMode === 'stress') {
@@ -150,7 +163,6 @@ setInterval(() => {
     const totalSystemMem = os.totalmem();
     const memPercentage = (memUsage.rss / totalSystemMem) * 100;
 
-    // Minden node (API és Worker is) beküldi az adatait a közös csatornára
     redisMaster.publish('system_stats', JSON.stringify({
         cpu: cpuPercentage.toFixed(1),
         mem: memPercentage.toFixed(2),
@@ -160,9 +172,7 @@ setInterval(() => {
     }));
 }, 1000);
 
-// ==========================================
-// WORKER ROLE (Kizárólag feladatfeldolgozás)
-// ==========================================
+
 function stringToColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -175,6 +185,53 @@ function stringToColor(str) {
 if (ROLE === 'worker' || ROLE === 'all') {
     console.log(`[WORKER] Inicializálva a ${os.hostname()} node-on.`);
     
+    let objectDetectorPipeline = null;
+
+    async function getAiPipeline() {
+        if (!objectDetectorPipeline) {
+            console.log(`[WORKER ${os.hostname()}] AI Modell betöltése a memóriába...`);
+            // Node.js dinamikus import a Transformers.js-hez
+            const { pipeline, env } = await import('@huggingface/transformers');
+            // Kikapcsoljuk a helyi fájlkeresést, a HuggingFace-ről húzza le
+            env.allowLocalModels = false; 
+            objectDetectorPipeline = await pipeline('object-detection', 'Xenova/detr-resnet-50');
+            console.log(`[WORKER ${os.hostname()}] AI Modell KÉSZ!`);
+        }
+        return objectDetectorPipeline;
+    }
+    
+    async function aiWorkerLoop() {
+        try {
+            const taskRaw = await redisWorker.brpop('ai_tasks', 1); // 1 mp timeout
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]);
+                console.log(`[WORKER ${os.hostname()}] AI Kép elemzése elindult...`);
+                
+                const detector = await getAiPipeline();
+                // A Transformers.js meg tudja enni a data:image/jpeg;base64,... formátumot Node.js-ben is!
+                const rawPredictions = await detector(task.image, { threshold: 0.5, percentage: false });
+                
+                const predictions = rawPredictions.map(p => ({
+                    class: p.label,
+                    score: p.score,
+                    bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
+                }));
+
+                // Eredmény visszaküldése az API node-nak
+                redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ predictions }));
+                console.log(`[WORKER ${os.hostname()}] AI Elemzés kész, eredmény elküldve.`);
+            }
+        } catch (err) {
+            console.error("AI Worker hiba:", err);
+            // Hiba esetén is küldünk választ, hogy a kliens ne lógjon a levegőben
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]);
+                redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ error: err.message }));
+            }
+        }
+        setImmediate(aiWorkerLoop);
+    }
+
     async function workerLoop() {
         try {
             const taskRaw = await redisWorker.brpop('render_tasks', 0);        
@@ -265,5 +322,6 @@ if (ROLE === 'worker' || ROLE === 'all') {
         }
         setImmediate(workerLoop);
     }
+    aiWorkerLoop();
     workerLoop();
 }
