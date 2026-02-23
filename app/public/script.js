@@ -80,15 +80,42 @@ socket.on('init info', (data) => {
     }
 });
 
-socket.on('stats update', (data) => {
-    if (data.hostname !== myConnectedPodName) return; // filter only my connected pod stats
+let currentAiPod = null;
 
-    const usedMB = formatBytesToMB(data.memUsed); // used memory
-    const totalMB = formatBytesToMB(data.memTotal); // total memory
-    document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`; // used memory / total memory
-    
-    updateChart(cpuChart, data.cpu, 'cpuValue'); // update cpu chart
-    updateChart(memChart, data.mem, 'memValue'); // update memory chart
+socket.on('stats update', (stats) => {
+    // 1. Meglévő Pod statisztikák frissítése
+    updatePodList(stats); // Tegyük fel, hogy ez a függvényed kezeli a listát
+
+    // 2. AI Specifikus frissítés
+    const aiMonitor = document.getElementById('ai-active-pod');
+    const progressBar = document.getElementById('ai-progress-bar');
+
+    if (stats.aiStatus === 'working') {
+        currentAiPod = stats.aiPod;
+        aiMonitor.innerHTML = `Active: <span class="status-working">${stats.aiPod}</span>`;
+        progressBar.style.width = '100%'; // Mivel az elemzés ideje változó, itt fixen jelezzük a munkát
+    } else if (stats.aiStatus === 'idle') {
+        currentAiPod = null;
+        aiMonitor.innerHTML = `Status: <span class="status-idle">Waiting for task...</span>`;
+        progressBar.style.width = '0%';
+    }
+
+    // 3. Eőforrás adatok hozzákötése az AI Podhoz
+    // Ha a statisztika abból a Podból jött, amelyik éppen AI-t számol, 
+    // vizuálisan is kiemeljük a listában.
+    document.querySelectorAll('.pod-item').forEach(item => {
+        const podName = item.dataset.hostname; // Feltételezve, hogy tárolod a nevet
+        if (podName === currentAiPod) {
+            item.classList.add('is-processing-ai');
+            // Itt kiírhatod a specifikus CPU/RAM adatokat is az AI kártyára:
+            if (stats.hostname === currentAiPod) {
+                document.getElementById('ai-active-pod').innerHTML += 
+                    `<br><small>CPU: ${stats.cpu}% | RAM: ${stats.mem}%</small>`;
+            }
+        } else {
+            item.classList.remove('is-processing-ai');
+        }
+    });
 });
 
 function updatePodInfo(name) { document.getElementById('podName').textContent = name; } // update pod name

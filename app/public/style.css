@@ -289,3 +289,45 @@
             header { flex-direction: column; align-items: flex-start; gap: 20px; }
             .dashboard-grid { grid-template-columns: 1fr; }
         }
+
+        .monitor-card {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            color: white;
+        }
+        
+        .status-idle { color: #888; }
+        .status-working { 
+            color: #ef4444; 
+            font-weight: bold;
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        
+        .progress-container {
+            width: 100%;
+            background: #333;
+            height: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: #ef4444;
+            transition: width 0.3s ease;
+        }
+        
+        /* Kiemelés a listában */
+        .pod-item.is-processing-ai {
+            border: 2px solid #ef4444 !important;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+        }
