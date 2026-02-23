@@ -1,19 +1,19 @@
 # k8s/deployment.yaml
 
-# node.js
+# api
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-deployment
+  name: backend-api-deployment
 spec:
-  replicas: 5
+  replicas: 2 
   selector:
     matchLabels:
-      app: backend
+      app: backend-api
   template:
     metadata:
       labels:
-        app: backend
+        app: backend-api
     spec:
       containers:
       - name: node
@@ -21,34 +21,91 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 3000
-        #==
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
           allowPrivilegeEscalation: false
-        #==
         env:
+          - name: ROLE
+            value: "api"
+          - name: REDIS_HOST
+            value: "redis-service"
           - name: ADMIN_PASSWORD 
             valueFrom:
               secretKeyRef:
                 name: app-secrets
                 key: ADMIN_PASSWORD 
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+        resources:
+          requests:
+            cpu: "100m"     
+            memory: "128Mi"  
+          limits:
+            cpu: "500m"      
+            memory: "512Mi"  
 
 ---
-# service
+# api service
 apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
 spec:
   selector:
-    app: backend
+    app: backend-api
   ports:
     - port: 80
       targetPort: 3000
   type: ClusterIP
-
 ---
+
+# worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-worker-deployment
+spec:
+  replicas: 5 
+  selector:
+    matchLabels:
+      app: backend-worker
+  template:
+    metadata:
+      labels:
+        app: backend-worker
+    spec:
+      containers:
+      - name: node
+        image: my-node-app:latest
+        imagePullPolicy: Never
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+        env:
+          - name: ROLE
+            value: "worker"
+          - name: REDIS_HOST
+            value: "redis-service"
+          - name: ADMIN_PASSWORD 
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets
+                key: ADMIN_PASSWORD
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+        resources:
+          requests:
+            cpu: "100m"     
+            memory: "128Mi"  
+          limits:
+            cpu: "500m"     
+            memory: "512Mi"
 
 # nginx
 apiVersion: apps/v1

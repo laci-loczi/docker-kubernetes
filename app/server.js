@@ -1,13 +1,12 @@
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; //stored in secret
+const ROLE = process.env.ROLE || 'all'; // 'api', 'worker', vagy 'all'
 
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
-
 const Redis = require('ioredis');
-
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
@@ -28,71 +27,102 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 // -------------------------------------------------------------
 
-const clients = {}; 
-
-const app = express();
-const server = http.createServer(app);
-
-const io = new Server(server, { maxHttpBufferSize: 2e6 });
-const PORT = 3000;
-
-app.use(express.json({ limit: '2mb' }));
-app.use(express.static('public'));
-
-app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/public/index.html');
-});
-
 let startUsage = process.cpuUsage();
 let startTime = process.hrtime.bigint();
 let currentMode = 'normal';
 let memoryHog = [];
 
-io.on('connection', (socket) => {
-    socket.emit('init info', { hostname: os.hostname() });
-    clients[socket.id] = socket;
-
-    socket.on('change mode', (data) => {
-        if (data.mode === 'stress') {
-            if (data.password === ADMIN_PASSWORD) {
-                currentMode = 'stress';
-            } else {
-                socket.emit('auth error', 'Hibás jelszó!');
-            }
-        } else {
-            currentMode = 'normal';
+// Globális Redis Sub feliratkozások (API és Worker is hallgatja a módot)
+redisSub.subscribe('system_mode');
+redisSub.on('message', (channel, message) => {
+    if (channel === 'system_mode') {
+        const data = JSON.parse(message);
+        currentMode = data.mode;
+        if (currentMode === 'normal') {
             memoryHog = [];
             if (global.gc) { global.gc(); }
         }
-    });
-
-    socket.on('start render row', async (data) => {
-        const jobId = socket.id; 
-        
-        const pipeline = redisMaster.pipeline();
-        
-        data.chunks.forEach(chunk => {
-            pipeline.lpush('render_tasks', JSON.stringify({
-                jobId: jobId,
-                chunkId: chunk.chunkId,
-                width: chunk.width,
-                height: chunk.height,
-                globalX: chunk.globalX, 
-                globalY: chunk.globalY, 
-                aiBoxes: data.aiBoxes,  
-                mode: data.mode,
-                pixels: chunk.pixels
-            }));
-        });
-        
-        await pipeline.exec();
-    });
-
-    socket.on('disconnect', () => {
-        delete clients[socket.id]; 
-    });
+    }
 });
 
+// ==========================================
+// API ROLE (Express + Socket.io + Frontend kiszolgálás)
+// ==========================================
+if (ROLE === 'api' || ROLE === 'all') {
+    const clients = {}; 
+    const app = express();
+    const server = http.createServer(app);
+    const io = new Server(server, { maxHttpBufferSize: 2e6 });
+    const PORT = 3000;
+
+    app.use(express.json({ limit: '2mb' }));
+    app.use(express.static('public'));
+
+    app.get('/', (req, res) => {
+        res.sendFile(__dirname + '/public/index.html');
+    });
+
+    io.on('connection', (socket) => {
+        socket.emit('init info', { hostname: os.hostname() });
+        clients[socket.id] = socket;
+
+        socket.on('change mode', (data) => {
+            if (data.mode === 'stress' && data.password !== ADMIN_PASSWORD) {
+                socket.emit('auth error', 'Hibás jelszó!');
+                return;
+            }
+            // Szólunk minden node-nak (API-nak és Workernek is) a Redis-en keresztül
+            redisMaster.publish('system_mode', JSON.stringify({ mode: data.mode }));
+        });
+
+        socket.on('start render row', async (data) => {
+            const jobId = socket.id; 
+            const pipeline = redisMaster.pipeline();
+            
+            data.chunks.forEach(chunk => {
+                pipeline.lpush('render_tasks', JSON.stringify({
+                    jobId: jobId,
+                    chunkId: chunk.chunkId,
+                    width: chunk.width,
+                    height: chunk.height,
+                    globalX: chunk.globalX, 
+                    globalY: chunk.globalY, 
+                    aiBoxes: data.aiBoxes,  
+                    mode: data.mode,
+                    pixels: chunk.pixels
+                }));
+            });
+            await pipeline.exec();
+        });
+
+        socket.on('disconnect', () => { delete clients[socket.id]; });
+    });
+
+    // API figyeli a Worker-ek renderelését ÉS a telemetria adatait
+    redisSub.psubscribe('job_results_*');
+    redisSub.subscribe('system_stats');
+
+    redisSub.on('pmessage', (pattern, channel, message) => {
+        const jobId = channel.replace('job_results_', '');
+        if (clients[jobId]) {
+            clients[jobId].emit('render result', JSON.parse(message));
+        }
+    });
+
+    redisSub.on('message', (channel, message) => {
+        if (channel === 'system_stats') {
+            io.emit('stats update', JSON.parse(message)); // Kiküldjük a dashboardnak
+        }
+    });
+
+    server.listen(PORT, () => {
+        console.log(`[API] Server running on ${PORT}`);
+    });
+}
+
+// ==========================================
+// KÖZÖS LOGIKA (Telemetria és Stresszteszt - minden node futtatja)
+// ==========================================
 function generateLoad() {
     crypto.pbkdf2Sync('titkos', 'só', 1000, 64, 'sha512');
     if (currentMode === 'stress') {
@@ -103,9 +133,7 @@ function generateLoad() {
 setInterval(() => {
     if (currentMode === 'stress') {
         const startLoop = Date.now();
-        while (Date.now() - startLoop < 500) { 
-            generateLoad();
-        }
+        while (Date.now() - startLoop < 500) { generateLoad(); }
     }
 
     const endUsage = process.cpuUsage(startUsage);
@@ -120,23 +148,21 @@ setInterval(() => {
 
     const memUsage = process.memoryUsage();
     const totalSystemMem = os.totalmem();
-    const usedMemBytes = memUsage.rss;
-    const memPercentage = (usedMemBytes / totalSystemMem) * 100;
+    const memPercentage = (memUsage.rss / totalSystemMem) * 100;
 
-    io.emit('stats update', {
+    // Minden node (API és Worker is) beküldi az adatait a közös csatornára
+    redisMaster.publish('system_stats', JSON.stringify({
         cpu: cpuPercentage.toFixed(1),
         mem: memPercentage.toFixed(2),
-        memUsed: usedMemBytes, 
+        memUsed: memUsage.rss, 
         memTotal: totalSystemMem,
         hostname: os.hostname() 
-    });
-
+    }));
 }, 1000);
 
-server.listen(PORT, () => {
-    console.log(`Monitor running on ${PORT}`);
-});
-
+// ==========================================
+// WORKER ROLE (Kizárólag feladatfeldolgozás)
+// ==========================================
 function stringToColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -146,104 +172,98 @@ function stringToColor(str) {
     return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-redisSub.psubscribe('job_results_*');
-redisSub.on('pmessage', (pattern, channel, message) => {
-    const jobId = channel.replace('job_results_', '');
-    if (clients[jobId]) {
-        clients[jobId].emit('render result', JSON.parse(message));
-    }
-});
+if (ROLE === 'worker' || ROLE === 'all') {
+    console.log(`[WORKER] Inicializálva a ${os.hostname()} node-on.`);
+    
+    async function workerLoop() {
+        try {
+            const taskRaw = await redisWorker.brpop('render_tasks', 0);        
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]);
+                const { jobId, chunkId, pixels, width, height, mode, globalX, globalY, aiBoxes } = task;
+                
+                const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
+                let asciiHTML = '';
+                
+                const workerName = os.hostname();
+                const podColor = stringToColor(workerName);
 
-async function workerLoop() {
-    try {
-        const taskRaw = await redisWorker.brpop('render_tasks', 0);        
-        if (taskRaw) {
-            const task = JSON.parse(taskRaw[1]);
-            const { jobId, chunkId, pixels, width, height, mode, globalX, globalY, aiBoxes } = task;
-            
-            const chars = [' ', '.', ',', '-', '~', ':', ';', '=', '!', '*', 'x', '%', '#', '@'];
-            let asciiHTML = '';
-            
-            const workerName = os.hostname();
-            const podColor = stringToColor(workerName);
+                for (let y = 0; y < height; y += 2) { 
+                    for (let x = 0; x < width; x++) {
+                        const index = (y * width + x) * 4;
+                        const r = pixels[index];
+                        const g = pixels[index + 1];
+                        const b = pixels[index + 2];
+                        
+                        const gX = globalX + x;
+                        const gY = globalY + y;
 
-            for (let y = 0; y < height; y += 2) { 
-                for (let x = 0; x < width; x++) {
-                    const index = (y * width + x) * 4;
-                    const r = pixels[index];
-                    const g = pixels[index + 1];
-                    const b = pixels[index + 2];
-                    
-                    const gX = globalX + x;
-                    const gY = globalY + y;
+                        const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
+                        const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
+                        
+                        let charToDraw = chars[charIndex];
+                        let finalColor = `rgb(${r}, ${g}, ${b})`; 
+                        let isAiOverlay = false;
 
-                    const brightness = (0.299 * r + 0.587 * g + 0.114 * b);
-                    const charIndex = Math.floor((brightness / 255) * (chars.length - 1));
-                    
-                    let charToDraw = chars[charIndex];
-                    let finalColor = `rgb(${r}, ${g}, ${b})`; 
-                    let isAiOverlay = false;
+                        if (aiBoxes && aiBoxes.length > 0) {
+                            for (let i = 0; i < aiBoxes.length; i++) {
+                                const box = aiBoxes[i];
+                                const [bx, by, bw, bh] = box.bbox;
+                                const bLeft = Math.floor(bx);
+                                const bTop = Math.floor(by);
+                                const bRight = Math.floor(bx + bw);
+                                const bBottom = Math.floor(by + bh);
 
-                    if (aiBoxes && aiBoxes.length > 0) {
-                        for (let i = 0; i < aiBoxes.length; i++) {
-                            const box = aiBoxes[i];
-                            const [bx, by, bw, bh] = box.bbox;
-                            const bLeft = Math.floor(bx);
-                            const bTop = Math.floor(by);
-                            const bRight = Math.floor(bx + bw);
-                            const bBottom = Math.floor(by + bh);
+                                const isTop = Math.abs(gY - bTop) <= 1 && gX >= bLeft && gX <= bRight;
+                                const isBottom = Math.abs(gY - bBottom) <= 1 && gX >= bLeft && gX <= bRight;
+                                const isLeft = gX === bLeft && gY >= bTop && gY <= bBottom;
+                                const isRight = gX === bRight && gY >= bTop && gY <= bBottom;
 
-                            const isTop = Math.abs(gY - bTop) <= 1 && gX >= bLeft && gX <= bRight;
-                            const isBottom = Math.abs(gY - bBottom) <= 1 && gX >= bLeft && gX <= bRight;
-                            const isLeft = gX === bLeft && gY >= bTop && gY <= bBottom;
-                            const isRight = gX === bRight && gY >= bTop && gY <= bBottom;
+                                if (isTop || isBottom || isLeft || isRight) {
+                                    isAiOverlay = true;
+                                    finalColor = '#ef4444'; 
+                                    charToDraw = '+';
 
-                            if (isTop || isBottom || isLeft || isRight) {
-                                isAiOverlay = true;
-                                finalColor = '#ef4444'; 
-                                charToDraw = '+';
-
-                                if (isTop) {
-                                    const label = `[ ${box.class.toUpperCase()} ${Math.round(box.score * 100)}% ]`;
-                                    const textStartX = bLeft + 2;
-                                    if (gX >= textStartX && gX < textStartX + label.length) {
-                                        charToDraw = label[gX - textStartX];
-                                        finalColor = '#10b981'; 
+                                    if (isTop) {
+                                        const label = `[ ${box.class.toUpperCase()} ${Math.round(box.score * 100)}% ]`;
+                                        const textStartX = bLeft + 2;
+                                        if (gX >= textStartX && gX < textStartX + label.length) {
+                                            charToDraw = label[gX - textStartX];
+                                            finalColor = '#10b981'; 
+                                        }
                                     }
+                                    break; 
                                 }
-                                break; 
                             }
                         }
-                    }
 
-                    if (!isAiOverlay) {
-                        if (mode === 'topology') finalColor = podColor;
-                        else if (mode === 'matrix') finalColor = '#10b981'; 
-                    }
+                        if (!isAiOverlay) {
+                            if (mode === 'topology') finalColor = podColor;
+                            else if (mode === 'matrix') finalColor = '#10b981'; 
+                        }
 
-                    asciiHTML += `<span style="color: ${finalColor}; font-weight: ${isAiOverlay ? '900' : 'normal'}">${charToDraw}</span>`;
+                        asciiHTML += `<span style="color: ${finalColor}; font-weight: ${isAiOverlay ? '900' : 'normal'}">${charToDraw}</span>`;
+                    }
+                    asciiHTML += '\n'; 
                 }
-                asciiHTML += '\n'; 
-            }
 
-            if (currentMode === 'stress') {
-                const start = Date.now();
-                while (Date.now() - start < 100) {} 
-            }
+                if (currentMode === 'stress') {
+                    const start = Date.now();
+                    while (Date.now() - start < 100) {} 
+                }
 
-            const resultPayload = { 
-                chunkId: chunkId, 
-                podName: workerName, 
-                podColor: podColor, 
-                html: asciiHTML 
-            };
-            redisMaster.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));        
+                const resultPayload = { 
+                    chunkId: chunkId, 
+                    podName: workerName, 
+                    podColor: podColor, 
+                    html: asciiHTML 
+                };
+                redisMaster.publish(`job_results_${jobId}`, JSON.stringify(resultPayload));        
+            }
+        } catch (err) {
+            console.error("Worker hiba történt:", err);
         }
-    } catch (err) {
-        console.error("Worker hiba történt:", err);
+        setImmediate(workerLoop);
     }
-    
-    setImmediate(workerLoop);
+    workerLoop();
 }
-
-workerLoop();

@@ -1,10 +1,13 @@
 FROM node:18-alpine
 
+ENV NODE_ENV=production
+
 WORKDIR /app
 
-COPY package.json .
+COPY package.json package-lock.json* ./
 
-RUN npm install
+# npm ci sokkal gyorsabb és determinisztikusabb productionben
+RUN npm ci --only=production
 
 COPY . .
 
