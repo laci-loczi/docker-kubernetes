@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # npm ci sokkal gyorsabb és determinisztikusabb productionben
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
 COPY . .
 
