@@ -30,7 +30,10 @@ pipeline {
         }
         stage('Deploy to K8s') {
             steps {
-                sh './kubectl replace --force -f k8s/deployment.yaml'
+                sh './kubectl apply -f k8s/deployment.yaml'
+                sh './kubectl apply -f k8s/config.yaml'
+                sh './kubectl rollout restart deployment backend-api-deployment || true'
+                sh './kubectl rollout restart deployment backend-worker-deployment || true'
             }
         }
     }
