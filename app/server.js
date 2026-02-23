@@ -213,8 +213,15 @@ if (ROLE === 'worker' || ROLE === 'all') {
                 console.log(`[WORKER ${os.hostname()}] AI Kép elemzése elindult...`);
                 
                 const detector = await getAiPipeline();
-                // A Transformers.js meg tudja enni a data:image/jpeg;base64,... formátumot Node.js-ben is!
-                const rawPredictions = await detector(task.image, { threshold: 0.5, percentage: false });
+                
+                // --- MÓDOSÍTOTT RÉSZ KEZDETE ---
+                // Eltávolítjuk a Base64 fejlécet és Node.js Bufferré alakítjuk a képet
+                const base64Data = task.image.replace(/^data:image\/\w+;base64,/, "");
+                const imageBuffer = Buffer.from(base64Data, 'base64');
+                
+                // Átadjuk az imageBuffer-t a string helyett
+                const rawPredictions = await detector(imageBuffer, { threshold: 0.5, percentage: false });
+                // --- MÓDOSÍTOTT RÉSZ VÉGE ---
                 
                 const predictions = rawPredictions.map(p => ({
                     class: p.label,
