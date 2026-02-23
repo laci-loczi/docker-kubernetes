@@ -83,31 +83,25 @@ socket.on('init info', (data) => {
 let currentAiPod = null;
 
 socket.on('stats update', (stats) => {
-    // 1. Meglévő Pod statisztikák frissítése
-    updatePodList(stats); // Tegyük fel, hogy ez a függvényed kezeli a listát
+    updatePodList(stats); 
 
-    // 2. AI Specifikus frissítés
     const aiMonitor = document.getElementById('ai-active-pod');
     const progressBar = document.getElementById('ai-progress-bar');
 
     if (stats.aiStatus === 'working') {
         currentAiPod = stats.aiPod;
         aiMonitor.innerHTML = `Active: <span class="status-working">${stats.aiPod}</span>`;
-        progressBar.style.width = '100%'; // Mivel az elemzés ideje változó, itt fixen jelezzük a munkát
+        progressBar.style.width = '100%'; 
     } else if (stats.aiStatus === 'idle') {
         currentAiPod = null;
         aiMonitor.innerHTML = `Status: <span class="status-idle">Waiting for task...</span>`;
         progressBar.style.width = '0%';
     }
 
-    // 3. Eőforrás adatok hozzákötése az AI Podhoz
-    // Ha a statisztika abból a Podból jött, amelyik éppen AI-t számol, 
-    // vizuálisan is kiemeljük a listában.
     document.querySelectorAll('.pod-item').forEach(item => {
-        const podName = item.dataset.hostname; // Feltételezve, hogy tárolod a nevet
+        const podName = item.dataset.hostname; 
         if (podName === currentAiPod) {
             item.classList.add('is-processing-ai');
-            // Itt kiírhatod a specifikus CPU/RAM adatokat is az AI kártyára:
             if (stats.hostname === currentAiPod) {
                 document.getElementById('ai-active-pod').innerHTML += 
                     `<br><small>CPU: ${stats.cpu}% | RAM: ${stats.mem}%</small>`;
