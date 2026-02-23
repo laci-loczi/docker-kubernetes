@@ -205,8 +205,9 @@ if (ROLE === 'worker' || ROLE === 'all') {
     }
 
     async function aiWorkerLoop() {
+        let taskRaw = null; 
         try {
-            const taskRaw = await redisAiWorker.brpop('ai_tasks', 1);// 1 mp timeout
+            taskRaw = await redisAiWorker.brpop('ai_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
                 console.log(`[WORKER ${os.hostname()}] AI Kép elemzése elindult...`);

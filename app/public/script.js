@@ -71,22 +71,27 @@ socket.on('disconnect', () => {
     statusDot.style.boxShadow = "none";
 });
 
+let myConnectedPodName = ""; 
+
 socket.on('init info', (data) => {
-    if(data && data.hostname) updatePodInfo(data.hostname);
+    if(data && data.hostname) {
+        myConnectedPodName = data.hostname; 
+        updatePodInfo(data.hostname); // update pod name
+    }
 });
 
 socket.on('stats update', (data) => {
-    updatePodInfo(data.hostname);
+    if (data.hostname !== myConnectedPodName) return; // filter only my connected pod stats
 
-    const usedMB = formatBytesToMB(data.memUsed);
-    const totalMB = formatBytesToMB(data.memTotal);
-    document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`;
+    const usedMB = formatBytesToMB(data.memUsed); // used memory
+    const totalMB = formatBytesToMB(data.memTotal); // total memory
+    document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`; // used memory / total memory
     
-    updateChart(cpuChart, data.cpu, 'cpuValue');
-    updateChart(memChart, data.mem, 'memValue');
+    updateChart(cpuChart, data.cpu, 'cpuValue'); // update cpu chart
+    updateChart(memChart, data.mem, 'memValue'); // update memory chart
 });
 
-function updatePodInfo(name) { document.getElementById('podName').textContent = name; }
+function updatePodInfo(name) { document.getElementById('podName').textContent = name; } // update pod name
 
 function updateChart(chart, value, valueElementId) {
     document.getElementById(valueElementId).innerHTML = `${value}<span class="unit">%</span>`;
@@ -112,7 +117,6 @@ let totalTiles = 0;
 let completedTiles = 0;
 let leaderboardTimeout = null;
 
-// --- AI: real-time heap display (only while image is being analyzed) ---
 let aiMemoryInterval = null;
 
 function getBrowserHeapMB() {
