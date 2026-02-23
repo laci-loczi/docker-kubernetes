@@ -7,7 +7,7 @@ WORKDIR /app
 COPY --chown=node:node package.json package-lock.json* ./
 
 # npm ci sokkal gyorsabb és determinisztikusabb productionben
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 COPY . .
 
