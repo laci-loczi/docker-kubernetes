@@ -342,33 +342,46 @@ if (ROLE === 'worker' || ROLE === 'all') {
     // subtitle translation worker loop
     async function translateWorkerLoop() {
         try {
-            // hopefully the new redisTranslateWorker is being used!
             const taskRaw = await redisTranslateWorker.brpop('translate_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
+                console.log(`\n[WORKER ${os.hostname()}] ---> Új feladat a Redisből! [Sor index: ${task.index}]`);
+                console.log(`[WORKER ${os.hostname()}] Eredeti SRT szöveg: "${task.text}"`);
                 
                 try {
                     let translatedText = task.text;
                     
-                    // only call the ai if there is actual text in the line
                     if (task.text && task.text.trim() !== "") {
+                        // clean the text: remove all html tags (pl. <i>) and replace the new lines (\n) with spaces
+                        const cleanText = task.text.replace(/<[^>]*>?/gm, '').replace(/\n/g, ' ').trim();
+                        
                         const translator = await getTranslatorPipeline();
-                        const result = await translator(task.text);
+                        
+                        console.log(`[WORKER ${os.hostname()}] AI motor forró. Fordítás futtatása ezen: "${cleanText}" ... (Ez az elsőnél eltarthat 1-2 percig!)`);
+                        const startTime = Date.now();
+                        
+                        // here the actual computation happens
+                        const result = await translator(cleanText);
+                        
+                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                         translatedText = result[0].translation_text;
+                        console.log(`[WORKER ${os.hostname()}] SIKERES FORDÍTÁS (${elapsed} másodperc alatt): "${translatedText}"`);
+                    } else {
+                        console.log(`[WORKER ${os.hostname()}] Üres sor, átugorjuk az AI-t.`);
                     }
 
-                    // send the successful translation (or the empty line)
+                    // publish the result to the api
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
                         index: task.index,
                         translatedText: translatedText
                     }));
+                    console.log(`[WORKER ${os.hostname()}] Eredmény visszaküldve a böngészőnek! <---`);
+                    
                 } catch (aiErr) {
-                    console.error(`[WORKER ${os.hostname()}] AI Fordítási hiba:`, aiErr.message);
-                    // if there is an error, we need to send something to the api,
-                    // otherwise the client will wait forever and won't get the file!
+                    console.error(`[WORKER ${os.hostname()}] !!! AI Fordítási hiba:`, aiErr.message);
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
                         index: task.index,
-                        translatedText: `[FORDÍTÁSI HIBA: ${task.text}]` 
+                        translatedText: `[HIBA: ${task.text}]` 
                     }));
                 }
             }
