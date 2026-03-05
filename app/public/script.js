@@ -117,7 +117,7 @@ let totalTiles = 0;
 let completedTiles = 0;
 let leaderboardTimeout = null;
 
-// --- AI: real-time heap display (only while image is being analyzed) ---
+
 let aiMemoryInterval = null;
 
 function getBrowserHeapMB() {
@@ -194,6 +194,7 @@ async function startDistributedRender() {
         
         let predictions = [];
         let scaledAiBoxes = [];
+        let scale = 1;
 
         if (TASK_MODE === 'both' || TASK_MODE === 'ai') {
             aiPanel.style.display = 'block';
@@ -202,7 +203,7 @@ async function startDistributedRender() {
             
             const aiCanvas = document.createElement('canvas');
             const maxDim = 640;
-            let scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+            scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
             aiCanvas.width = img.width * scale;
             aiCanvas.height = img.height * scale;
             aiCanvas.getContext('2d').drawImage(img, 0, 0, aiCanvas.width, aiCanvas.height);
