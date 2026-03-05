@@ -320,21 +320,38 @@ if (ROLE === 'worker' || ROLE === 'all') {
     // subtitle translation worker loop
     async function translateWorkerLoop() {
         try {
+            // hopefully the new redisTranslateWorker is being used!
             const taskRaw = await redisTranslateWorker.brpop('translate_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
-                const translator = await getTranslatorPipeline();
                 
-                const result = await translator(task.text);
-                const translatedText = result[0].translation_text;
+                try {
+                    let translatedText = task.text;
+                    
+                    // only call the ai if there is actual text in the line
+                    if (task.text && task.text.trim() !== "") {
+                        const translator = await getTranslatorPipeline();
+                        const result = await translator(task.text);
+                        translatedText = result[0].translation_text;
+                    }
 
-                redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
-                    index: task.index,
-                    translatedText: translatedText
-                }));
+                    // send the successful translation (or the empty line)
+                    redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
+                        index: task.index,
+                        translatedText: translatedText
+                    }));
+                } catch (aiErr) {
+                    console.error(`[WORKER ${os.hostname()}] AI Fordítási hiba:`, aiErr.message);
+                    // if there is an error, we need to send something to the api,
+                    // otherwise the client will wait forever and won't get the file!
+                    redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
+                        index: task.index,
+                        translatedText: `[FORDÍTÁSI HIBA: ${task.text}]` 
+                    }));
+                }
             }
         } catch (err) {
-            console.error("Translate Worker hiba:", err);
+            console.error("Translate Worker Redis hiba:", err.message);
         }
         setImmediate(translateWorkerLoop);
     }
