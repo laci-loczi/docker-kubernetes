@@ -343,19 +343,24 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                     // 3. the mega batch: send all lines to the ai at once!
                     let translatedValidLines = [];
-                    if (validLinesToTranslate.length > 0) {
-                        // strict limits for the ai
-                        const results = await translator(validLinesToTranslate, {
-                            max_new_tokens: 60,       // max 60 words/line (a subtitle is never longer than that)
-                            repetition_penalty: 1.2   // punish the "babies... babies..." repetitions
-                        });
+                    for (const line of validLinesToTranslate) {
+                        // translate one by one to keep the ai's attention at 100%
+                        const result = await translator(line, { max_new_tokens: 60 });
+                        let text = result[0].translation_text || "";
                         
-                        translatedValidLines = results.map(r => {
-                            let text = r.translation_text;
-                            // post-cleaning: if the ai gets too crazy with the punctuation, allow maximum 3 (e.g. "???")
-                            text = text.replace(/([.?!])\1{3,}/g, '$1$1$1'); 
-                            return text.trim();
-                        });
+                        // punctuation: if there are more than 3 (e.g. "?????"), truncate to 3
+                        text = text.replace(/([.?!,])\1{2,}/g, '$1$1$1'); 
+                        
+                        // hallucinations: remove the "explanations" in parentheses (e.g. "(Külsőség)")
+                        text = text.replace(/\(.*?\)/g, ''); 
+                        text = text.replace(/\[.*?\]/g, ''); 
+                        
+                        // infinite repetition: if it gets too long, truncate it
+                        if (text.length > 120) {
+                            text = text.substring(0, 117) + "...";
+                        }
+                        
+                        translatedValidLines.push(text.trim());
                     }
 
                     // 4. rebuild the expanded array with the translated texts
