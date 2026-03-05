@@ -8,7 +8,6 @@ const os = require('os'); // operating system
 const crypto = require('crypto'); // crypto
 const Redis = require('ioredis'); // redis
 const { Blob } = require('buffer'); // blob
-const srtParser2 = require("srt-parser-2").default; // srt parser
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; // redis host
@@ -120,9 +119,14 @@ if (ROLE === 'api' || ROLE === 'all') {
         });
 
         // subtitle translation api logic
+        // --- FELIRAT FORDÍTÁS API LOGIKA JAVÍTVA ---
         socket.on('translate subtitle', async (srtText) => {
             try {
-                const parser = new srtParser2();
+                // Dinamikus ESM importálás a hiba elkerülése végett
+                const srtParserModule = await import("srt-parser-2");
+                const SrtParser2 = srtParserModule.default;
+                
+                const parser = new SrtParser2();
                 const srtArray = parser.fromSrt(srtText);
                 const jobId = 'sub_' + crypto.randomUUID();
 
