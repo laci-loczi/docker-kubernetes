@@ -136,7 +136,7 @@ if (ROLE === 'api' || ROLE === 'all') {
         
         socket.on('analyze image', async (data, callback) => {
             const taskId = 'ai_' + crypto.randomUUID();
-            activeAiTasks[taskId] = callback; // Eltároljuk a callbacket memóriában
+            activeAiTasks[taskId] = callback; // store the callback in memory
             
             await redisMaster.lpush('ai_tasks', JSON.stringify({
                 taskId: taskId, image: data.image

@@ -80,16 +80,58 @@ socket.on('init info', (data) => {
     }
 });
 
-socket.on('stats update', (data) => {
-    if (data.hostname !== myConnectedPodName) return; 
+const clusterStats = {};
 
-    const usedMB = formatBytesToMB(data.memUsed); 
-    const totalMB = formatBytesToMB(data.memTotal); 
-    document.getElementById('memAbs').textContent = `${usedMB} / ${totalMB} MB`; 
-    
-    updateChart(cpuChart, data.cpu, 'cpuValue'); 
-    updateChart(memChart, data.mem, 'memValue'); 
+socket.on('stats update', (data) => {
+    // save every incoming pod statistics in memory with the name
+    clusterStats[data.hostname] = {
+        cpu: parseFloat(data.cpu),
+        memUsed: data.memUsed,
+        memTotal: data.memTotal,
+        lastSeen: Date.now()
+    };
 });
+
+// draw the aggregated data every second
+setInterval(() => {
+    if (!isSystemOnline || Object.keys(clusterStats).length === 0) return;
+
+    const now = Date.now();
+    let totalCpu = 0;
+    let totalMemUsed = 0;
+    let vmTotalMem = 0;
+    let podCount = 0;
+
+    for (const [hostname, stats] of Object.entries(clusterStats)) {
+        // if a pod hasn't sent data for more than 3 seconds (e.g. crashed / stopped), remove it
+        if (now - stats.lastSeen > 3000) {
+            delete clusterStats[hostname];
+            continue;
+        }
+        
+        // add the numbers (max 100% cpu per pod for the chart)
+        totalCpu += Math.min(stats.cpu, 100); 
+        totalMemUsed += stats.memUsed;
+        vmTotalMem = stats.memTotal; // the maximum memory of the virtual machine is the same for all pods
+        podCount++;
+    }
+
+    if (podCount > 0) {
+        // average cpu load between the active pods
+        const avgCpu = (totalCpu / podCount).toFixed(1);
+        
+        // aggregated memory percentage (max 100%)
+        const clusterMemPercent = Math.min((totalMemUsed / vmTotalMem) * 100, 100).toFixed(1);
+        
+        const usedMB = formatBytesToMB(totalMemUsed);
+        const maxMB = formatBytesToMB(vmTotalMem);
+        
+        document.getElementById('memAbs').textContent = `${usedMB} / ${maxMB} MB (${podCount} Pod aktív)`;
+        
+        updateChart(cpuChart, avgCpu, 'cpuValue'); 
+        updateChart(memChart, clusterMemPercent, 'memValue'); 
+    }
+}, 1000);
 
 function updatePodInfo(name) { document.getElementById('podName').textContent = name; }
 
@@ -118,7 +160,7 @@ let completedTiles = 0;
 let leaderboardTimeout = null;
 
 let aiMemoryInterval = null;
-let isProcessingTask = false; // Állapotkövető a spam ellen
+let isProcessingTask = false; // state tracker to prevent spam
 
 function getBrowserHeapMB() {
     if (typeof performance !== 'undefined' && performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
