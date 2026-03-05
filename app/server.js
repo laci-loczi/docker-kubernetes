@@ -14,10 +14,12 @@ const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; // redis host
 const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis master
 const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis worker
 const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis sub
+const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis translate worker
 
 redisMaster.on('error', (err) => console.error('Redis Master error'));
 redisWorker.on('error', (err) => console.error('Redis Worker error'));
 redisSub.on('error', (err) => console.error('Redis Sub error'));
+redisTranslateWorker.on('error', (err) => console.error('Redis Translate Worker error'));
 
 const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis ai worker
 
@@ -119,10 +121,9 @@ if (ROLE === 'api' || ROLE === 'all') {
         });
 
         // subtitle translation api logic
-        // --- FELIRAT FORDÍTÁS API LOGIKA JAVÍTVA ---
         socket.on('translate subtitle', async (srtText) => {
             try {
-                // Dinamikus ESM importálás a hiba elkerülése végett
+                // dynamic esm import to avoid errors
                 const srtParserModule = await import("srt-parser-2");
                 const SrtParser2 = srtParserModule.default;
                 
@@ -319,7 +320,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
     // subtitle translation worker loop
     async function translateWorkerLoop() {
         try {
-            const taskRaw = await redisWorker.brpop('translate_tasks', 1);
+            const taskRaw = await redisTranslateWorker.brpop('translate_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
                 const translator = await getTranslatorPipeline();
