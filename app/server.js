@@ -123,12 +123,19 @@ if (ROLE === 'api' || ROLE === 'all') {
         // subtitle translation api logic
         socket.on('translate subtitle', async (srtText) => {
             try {
-                // dynamic esm import to avoid errors
+                // dynamic esm import (bulletproof version)
                 const srtParserModule = await import("srt-parser-2");
-                const SrtParser2 = srtParserModule.default;
+                const ParserClass = srtParserModule.default?.default || srtParserModule.default || srtParserModule;
+                const parser = new ParserClass();
                 
-                const parser = new SrtParser2();
                 const srtArray = parser.fromSrt(srtText);
+                console.log(`[API] SRT fájl feldolgozva, ${srtArray.length} sor küldése a workereknek...`);
+                
+                if (!srtArray || srtArray.length === 0) {
+                    socket.emit('subtitle error', 'A fájl üres vagy hibás SRT formátumú.');
+                    return;
+                }
+
                 const jobId = 'sub_' + crypto.randomUUID();
 
                 activeTranslations[jobId] = {
@@ -170,8 +177,12 @@ if (ROLE === 'api' || ROLE === 'all') {
                     }));
                 });
                 await pipeline.exec();
+                
+                // immediate response to the client, that the request has been successfully added to the Redis!
+                socket.emit('subtitle progress', { progress: 0, received: 0, total: srtArray.length });
 
             } catch (err) {
+                console.error("[API] SRT feldolgozási hiba:", err);
                 socket.emit('subtitle error', 'Hiba a fájl feldolgozásakor: ' + err.message);
             }
         });
@@ -267,10 +278,21 @@ if (ROLE === 'worker' || ROLE === 'all') {
     // subtitle translation ai initialization
     async function getTranslatorPipeline() {
         if (!translatorPipeline) {
-            console.log(`[WORKER ${os.hostname()}] NLP Fordító AI betöltése...`);
+            console.log(`[WORKER ${os.hostname()}] NLP Fordító AI letöltése és inicializálása...`);
             const { pipeline, env } = await import('@huggingface/transformers');
             env.allowLocalModels = false;
-            translatorPipeline = await pipeline('translation', 'Xenova/opus-mt-en-hu');
+            
+            // magic: progress_callback, so you can see the download in the logs!
+            translatorPipeline = await pipeline('translation', 'Xenova/opus-mt-en-hu', {
+                progress_callback: (info) => {
+                    if (info.status === 'progress') {
+                        console.log(`[WORKER] Modell letöltés (${info.file}): ${Math.round(info.progress)}%`);
+                    } else if (info.status === 'ready') {
+                        console.log(`[WORKER] Fájl kész: ${info.file}`);
+                    }
+                }
+            });
+            
             console.log(`[WORKER ${os.hostname()}] NLP Fordító AI KÉSZ!`);
         }
         return translatorPipeline;

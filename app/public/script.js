@@ -478,7 +478,12 @@ translateBtn.onclick = () => {
 
 // update the progress
 socket.on('subtitle progress', (data) => {
-    subStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> Fordítás: <span style="color: #10b981;">${data.progress}%</span> (${data.received} / ${data.total} mondat)`;
+    if (data.received === 0) {
+        // while the first translation hasn't arrived, the ai model is being downloaded/loaded on the worker pods.
+        subStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> Fájl a Redis sorban (${data.total} sor). K8s Worker AI letöltése/felébredése folyamatban...`;
+    } else {
+        subStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> Fordítás: <span style="color: #10b981;">${data.progress}%</span> (${data.received} / ${data.total} mondat)`;
+    }
 });
 
 // error handling
