@@ -119,6 +119,7 @@ spec:
           limits:
             cpu: "2000m"     
             memory: "2048Mi"  
+        # worker lifecycle (split into Liveness and Readiness)
         startupProbe:
           httpGet:
             path: /healthz
@@ -130,9 +131,16 @@ spec:
             path: /healthz
             port: 3001
           periodSeconds: 20
+        # only ready if the ai is warmed up
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
 
 ---
-# worker hpa
+# worker autoscaler (hpa)
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -151,6 +159,14 @@ spec:
       target:
         type: Utilization
         averageUtilization: 85
+  # behavior rules (don't scale up unnecessarily)
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 45 # wait 45 seconds after the spike before scaling
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 15
 
 ---
 

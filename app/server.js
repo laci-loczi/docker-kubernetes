@@ -241,9 +241,18 @@ if (ROLE === 'worker' || ROLE === 'all') {
     console.log(`[WORKER] Inicializálva a ${os.hostname()} node-on.`);
     
     // simple healthcheck server for the worker
+    let isAiReady = false;
     if (ROLE === 'worker') {
         http.createServer((req, res) => {
-            if (req.url === '/healthz') { res.writeHead(200); res.end('OK'); }
+            if (req.url === '/healthz') { 
+                res.writeHead(200); res.end('OK'); // liveness (don't kill me!)
+            } else if (req.url === '/ready') {
+                if (isAiReady) {
+                    res.writeHead(200); res.end('Ready'); // readiness (i'm ready, the autoscaler can scale me!)
+                } else {
+                    res.writeHead(503); res.end('Loading AI...'); // still loading the ai!
+                }
+            }
         }).listen(3001);
     }
 
@@ -271,10 +280,12 @@ if (ROLE === 'worker' || ROLE === 'all') {
         return translatorPipeline;
     }
 
-    // WARMUP optimization: start them up at startup, so the first request is already lightning fast
+
     console.log(`[WORKER] Modellek előtöltése a gyorsítótárba (Warmup)...`);
-    getAiPipeline().catch(console.error);
-    getTranslatorPipeline().catch(console.error);
+    Promise.all([getAiPipeline(), getTranslatorPipeline()]).then(() => {
+        isAiReady = true; // now the /ready endpoint will return 200 OK!
+        console.log(`[WORKER] *** AI WARMUP KÉSZ! A pod mostantól READY állapotban van a K8s számára. ***`);
+    }).catch(console.error);
 
     async function aiWorkerLoop() {
         let taskRaw = null; 
