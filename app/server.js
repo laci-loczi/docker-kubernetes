@@ -9,7 +9,6 @@ const crypto = require('crypto');
 const Redis = require('ioredis');
 const { Blob } = require('buffer');
 
-
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
 const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
 const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
@@ -91,7 +90,7 @@ if (ROLE === 'api' || ROLE === 'all') {
             const taskId = channel.replace('ai_result_', '');
             if (activeAiTasks[taskId]) {
                 activeAiTasks[taskId](JSON.parse(message)); // execute the callback
-                delete activeAiTasks[taskId]; // free the memory
+                delete activeAiTasks[taskId]; // free memory
             }
         }
     });
@@ -272,7 +271,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
         return translatorPipeline;
     }
 
-    // WARMUP OPTIMIZATION: start them on startup, so the first request is already lightning fast
+    // WARMUP optimization: start them up at startup, so the first request is already lightning fast
     console.log(`[WORKER] Modellek előtöltése a gyorsítótárba (Warmup)...`);
     getAiPipeline().catch(console.error);
     getTranslatorPipeline().catch(console.error);
@@ -341,24 +340,17 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         }
                     });
 
-                    // 3. the mega batch: send all lines to the ai at once!
+                    // 3. local processing: without network latency, but one by one to the ai, so it doesn't get confused!
                     let translatedValidLines = [];
                     for (const line of validLinesToTranslate) {
-                        // translate one by one to keep the ai's attention at 100%
                         const result = await translator(line, { max_new_tokens: 60 });
                         let text = result[0].translation_text || "";
                         
-                        // punctuation: if there are more than 3 (e.g. "?????"), truncate to 3
-                        text = text.replace(/([.?!,])\1{2,}/g, '$1$1$1'); 
-                        
-                        // hallucinations: remove the "explanations" in parentheses (e.g. "(Külsőség)")
-                        text = text.replace(/\(.*?\)/g, ''); 
+                        // aggressive cleaning: remove hallucinations and limit the length
+                        text = text.replace(/([.?!,])\1{2,}/g, '$1$1$1'); // punctuation limit
+                        text = text.replace(/\(.*?\)/g, ''); // remove parentheses
                         text = text.replace(/\[.*?\]/g, ''); 
-                        
-                        // infinite repetition: if it gets too long, truncate it
-                        if (text.length > 120) {
-                            text = text.substring(0, 117) + "...";
-                        }
+                        if (text.length > 120) text = text.substring(0, 117) + "..."; // length limit
                         
                         translatedValidLines.push(text.trim());
                     }
@@ -369,7 +361,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         finalFlatLines[flatIdx] = translatedValidLines[i];
                     });
 
-                    // 5. repack the expanded lines into the original 30 SRT time slots
+                    // 5. repack the expanded lines into the original SRT time slots
                     const translatedItems = new Array(task.items.length).fill("");
                     finalFlatLines.forEach((line, flatIdx) => {
                         const itemIdx = lineMapping[flatIdx];
@@ -386,7 +378,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     }));
                 } catch (aiErr) {
                     console.error("AI Fordítási hiba a csomagban:", aiErr);
-                    // if there is an error, we need to send the original batch with an error message
+                    // if there is an error, send the original batch with an error message
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
                         startIndex: task.startIndex,
                         translatedItems: task.items.map(t => `[HIBA]`)
