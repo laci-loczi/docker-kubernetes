@@ -213,17 +213,22 @@ async function startDistributedRender() {
             try {
                 aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-spinner fa-spin"></i> Worker node elemzi a képet...</li>';
                 
-                const rawPredictions = await new Promise((resolve, reject) => {
+                let aiWorkerName = "Ismeretlen Worker";
+                let aiWorkerColor = "#10b981";
+
+                const aiResponse = await new Promise((resolve, reject) => {
                     socket.emit('analyze image', { image: imageDataBase64 }, (response) => {
                         if (response.error) reject(new Error(response.error));
-                        else resolve(response.predictions);
+                        else resolve(response); 
                     });
                     
                     // more timeout for ai
                     setTimeout(() => reject(new Error("AI Timeout (Túl sokáig tartott az elemzés)")), 90000);
                 });
 
-                predictions = rawPredictions;
+                predictions = aiResponse.predictions;
+                aiWorkerName = aiResponse.podName || "K8s AI Worker";
+                aiWorkerColor = aiResponse.podColor || "#10b981";
 
                 aiStatus.textContent = `${predictions.length} objektum találva`;
                 aiList.innerHTML = '';
@@ -300,7 +305,14 @@ async function startDistributedRender() {
             renderGrid.appendChild(finalCanvas);
             
             document.getElementById('progressText').textContent = '100%';
-            document.getElementById('podList').innerHTML = '<li style="color: #10b981;"><i class="fas fa-microchip"></i> Processed via K8s AI Worker</li>';
+            document.getElementById('podList').innerHTML = `
+                <li style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); padding: 5px 10px; border-radius: 4px;">
+                    <span style="display:flex; align-items:center; gap:8px;">
+                        <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background-color: ${aiWorkerColor}; box-shadow: 0 0 5px ${aiWorkerColor};"></span>
+                        <span style="font-family: monospace; color: var(--text-main);">${aiWorkerName}</span>
+                    </span>
+                    <strong style="color: ${aiWorkerColor};"><i class="fas fa-brain"></i> AI Inference</strong>
+                </li>`;
             
             return; 
         }

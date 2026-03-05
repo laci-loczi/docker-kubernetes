@@ -1,5 +1,5 @@
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; //stored in secret
-const ROLE = process.env.ROLE || 'all'; // 'api', 'worker', vagy 'all'
+const ROLE = process.env.ROLE || 'all'; 
 
 const express = require('express');
 const http = require('http');
@@ -7,7 +7,7 @@ const { Server } = require("socket.io");
 const os = require('os');
 const crypto = require('crypto');
 const Redis = require('ioredis');
-const { Blob } = require('buffer'); // <-- ÚJ SOR: Importáljuk a Blob-ot a biztonság kedvéért
+const { Blob } = require('buffer'); 
 
 // -------------------------------------------------------------
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
@@ -195,9 +195,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
     async function getAiPipeline() {
         if (!objectDetectorPipeline) {
             console.log(`[WORKER ${os.hostname()}] AI Modell betöltése a memóriába...`);
-            // Node.js dinamikus import a Transformers.js-hez
             const { pipeline, env } = await import('@huggingface/transformers');
-            // Kikapcsoljuk a helyi fájlkeresést, a HuggingFace-ről húzza le
             env.allowLocalModels = false; 
             objectDetectorPipeline = await pipeline('object-detection', 'Xenova/detr-resnet-50');
             console.log(`[WORKER ${os.hostname()}] AI Modell KÉSZ!`);
@@ -215,17 +213,12 @@ if (ROLE === 'worker' || ROLE === 'all') {
                 
                 const detector = await getAiPipeline();
                 
-                // --- MÓDOSÍTOTT RÉSZ KEZDETE ---
                 const base64Data = task.image.replace(/^data:image\/\w+;base64,/, "");
-                const imageBuffer = Buffer.from(base64Data, 'base64');
-                
-                // A Transformers.js nem fogadja el a nyers Buffert (objectnek látja és eldobja),
-                // ezért be kell csomagolnunk egy szabványos Blob objektumba:
+                const imageBuffer = Buffer.from(base64Data, 'base64');             
+
                 const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
                 
-                // Átadjuk a Blob-ot az AI modellnek
                 const rawPredictions = await detector(imageBlob, { threshold: 0.5, percentage: false });
-                // --- MÓDOSÍTOTT RÉSZ VÉGE ---
                 
                 const predictions = rawPredictions.map(p => ({
                     class: p.label,
@@ -233,13 +226,16 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     bbox: [p.box.xmin, p.box.ymin, p.box.xmax - p.box.xmin, p.box.ymax - p.box.ymin]
                 }));
 
-                // Eredmény visszaküldése az API node-nak
-                redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ predictions }));
+                const workerName = os.hostname();
+                redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ 
+                    predictions: predictions,
+                    podName: workerName,
+                    podColor: stringToColor(workerName)
+                }));
                 console.log(`[WORKER ${os.hostname()}] AI Elemzés kész, eredmény elküldve.`);
             }
         } catch (err) {
             console.error("AI Worker hiba:", err);
-            // Hiba esetén is küldünk választ, hogy a kliens ne lógjon a levegőben
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
                 redisMaster.publish(`ai_result_${task.taskId}`, JSON.stringify({ error: err.message }));
