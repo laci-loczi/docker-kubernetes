@@ -66,11 +66,18 @@ if (ROLE === 'api' || ROLE === 'all') {
             const job = activeTranslations[jobId];
             if (!job) return; 
 
-            job.lines[data.index].text = data.translatedText;
-            job.received++;
+            // we get multiple thousands of lines back at once, we need to fit them in the right place
+            data.translatedItems.forEach((transText, i) => {
+                if (job.lines[data.startIndex + i]) {
+                    job.lines[data.startIndex + i].text = transText;
+                }
+            });
+            job.received++; // one batch processed
 
+            // calculate the real number of sentences to the ui
+            const currentLinesDone = Math.min(job.received * 30, job.lines.length);
             const progress = Math.round((job.received / job.total) * 100);
-            job.socket.emit('subtitle progress', { progress, received: job.received, total: job.total });
+            job.socket.emit('subtitle progress', { progress, received: currentLinesDone, total: job.lines.length });
 
             if (job.received === job.total) {
                 try {
@@ -150,17 +157,32 @@ if (ROLE === 'api' || ROLE === 'all') {
                 }
 
                 const jobId = 'sub_' + crypto.randomUUID();
+                
+                // smart batching: pack 30 time slots into one
+                const BATCH_SIZE = 30; 
+                const tasks = [];
+                for (let i = 0; i < srtArray.length; i += BATCH_SIZE) {
+                    tasks.push({
+                        jobId: jobId,
+                        startIndex: i,
+                        items: srtArray.slice(i, i + BATCH_SIZE).map(c => c.text) // send only the text
+                    });
+                }
+
+                // 'total' now is the number of batches, not the number of lines!
                 activeTranslations[jobId] = {
-                    total: srtArray.length, received: 0, lines: srtArray, socket: socket, parser: parser 
+                    total: tasks.length, 
+                    received: 0, 
+                    lines: srtArray, 
+                    socket: socket, 
+                    parser: parser 
                 };
 
                 socket.emit('subtitle progress', { progress: 0, received: 0, total: srtArray.length });
 
                 const pipeline = redisMaster.pipeline();
-                srtArray.forEach((line, index) => {
-                    pipeline.lpush('translate_tasks', JSON.stringify({
-                        jobId: jobId, index: index, text: line.text
-                    }));
+                tasks.forEach(t => {
+                    pipeline.lpush('translate_tasks', JSON.stringify(t));
                 });
                 await pipeline.exec();
 
@@ -291,43 +313,78 @@ if (ROLE === 'worker' || ROLE === 'all') {
         try {
             const taskRaw = await redisTranslateWorker.brpop('translate_tasks', 1);
             if (taskRaw) {
-                const task = JSON.parse(taskRaw[1]);
+                const task = JSON.parse(taskRaw[1]); // { jobId, startIndex, items: [...] }
                 
                 try {
-                    let finalTranslatedText = task.text;
+                    const translator = await getTranslatorPipeline();
                     
-                    if (task.text && task.text.trim() !== "") {
-                        const cleanText = task.text.replace(/<[^>]*>?/gm, '').trim();
-                        const lines = cleanText.split('\n');
-                        const translatedLines = [];
-                        
-                        const translator = await getTranslatorPipeline();
-                        
-                        // batching optimization
-                        const validLines = lines.map(l => l.trim()).filter(l => l !== "");
-                        let translatedValidLines = [];
-                        if (validLines.length > 0) {
-                            const results = await translator(validLines);
-                            translatedValidLines = results.map(r => r.translation_text);
+                    let flatLines = [];
+                    let lineMapping = []; // remember which sentence belongs to which SRT time slot
+
+                    // 1. clean every time slot and expand the lines
+                    task.items.forEach((itemText, itemIdx) => {
+                        const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
+                        const subLines = cleanText.split('\n');
+                        subLines.forEach(sl => {
+                            flatLines.push(sl.trim());
+                            lineMapping.push(itemIdx);
+                        });
+                    });
+
+                    // 2. filter out the empty lines for the batching
+                    const validIndices = [];
+                    const validLinesToTranslate = [];
+                    flatLines.forEach((line, idx) => {
+                        if (line !== "") {
+                            validIndices.push(idx);
+                            validLinesToTranslate.push(line);
                         }
+                    });
+
+                    // 3. the mega batch: send all lines to the ai at once!
+                    let translatedValidLines = [];
+                    if (validLinesToTranslate.length > 0) {
+                        // strict limits for the ai
+                        const results = await translator(validLinesToTranslate, {
+                            max_new_tokens: 60,       // max 60 words/line (a subtitle is never longer than that)
+                            repetition_penalty: 1.2   // punish the "babies... babies..." repetitions
+                        });
                         
-                        let resultIdx = 0;
-                        for (let i = 0; i < lines.length; i++) {
-                            if (lines[i].trim() === "") translatedLines.push("");
-                            else {
-                                translatedLines.push(translatedValidLines[resultIdx]);
-                                resultIdx++;
-                            }
-                        }
-                        finalTranslatedText = translatedLines.join('\n');
+                        translatedValidLines = results.map(r => {
+                            let text = r.translation_text;
+                            // post-cleaning: if the ai gets too crazy with the punctuation, allow maximum 3 (e.g. "???")
+                            text = text.replace(/([.?!])\1{3,}/g, '$1$1$1'); 
+                            return text.trim();
+                        });
                     }
 
+                    // 4. rebuild the expanded array with the translated texts
+                    const finalFlatLines = [...flatLines];
+                    validIndices.forEach((flatIdx, i) => {
+                        finalFlatLines[flatIdx] = translatedValidLines[i];
+                    });
+
+                    // 5. repack the expanded lines into the original 30 SRT time slots
+                    const translatedItems = new Array(task.items.length).fill("");
+                    finalFlatLines.forEach((line, flatIdx) => {
+                        const itemIdx = lineMapping[flatIdx];
+                        if (translatedItems[itemIdx] === "") {
+                            translatedItems[itemIdx] = line;
+                        } else {
+                            translatedItems[itemIdx] += '\n' + line;
+                        }
+                    });
+
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
-                        index: task.index, translatedText: finalTranslatedText
+                        startIndex: task.startIndex,
+                        translatedItems: translatedItems
                     }));
                 } catch (aiErr) {
+                    console.error("AI Fordítási hiba a csomagban:", aiErr);
+                    // if there is an error, we need to send the original batch with an error message
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
-                        index: task.index, translatedText: `[HIBA: ${task.text}]` 
+                        startIndex: task.startIndex,
+                        translatedItems: task.items.map(t => `[HIBA]`)
                     }));
                 }
             }
