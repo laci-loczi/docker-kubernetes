@@ -269,31 +269,37 @@ async function startDistributedRender() {
             fctx.textBaseline = 'top';
             
             predictions.forEach(p => {
+                // fixing ai box coordinates to the original image size
+                const origX = p.bbox[0] / scale;
+                const origY = p.bbox[1] / scale;
+                const origW = p.bbox[2] / scale;
+                const origH = p.bbox[3] / scale;
+
                 fctx.strokeStyle = '#ef4444';
-                fctx.strokeRect(p.bbox[0], p.bbox[1], p.bbox[2], p.bbox[3]);
+                fctx.strokeRect(origX, origY, origW, origH);
                 
                 const label = `${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`;
                 const textWidth = fctx.measureText(label).width;
                 
-                let bgY = p.bbox[1] - 28;
-                let textY = p.bbox[1] - 22;
+                let bgY = origY - 28;
+                let textY = origY - 22;
                 
                 if (bgY < 0) {
-                    bgY = p.bbox[1]; 
-                    textY = p.bbox[1] + 6;
+                    bgY = origY; 
+                    textY = origY + 6;
                 }
                 
                 fctx.fillStyle = '#ef4444';
-                fctx.fillRect(p.bbox[0], bgY, textWidth + 10, 28);
+                fctx.fillRect(origX, bgY, textWidth + 10, 28);
                 
                 fctx.fillStyle = '#ffffff';
-                fctx.fillText(label, p.bbox[0] + 5, textY);
+                fctx.fillText(label, origX + 5, textY);
             });
             
             renderGrid.appendChild(finalCanvas);
             
             document.getElementById('progressText').textContent = '100%';
-            document.getElementById('podList').innerHTML = '<li style="color: #10b981;"><i class="fas fa-microchip"></i> Processed locally via Edge AI</li>';
+            document.getElementById('podList').innerHTML = '<li style="color: #10b981;"><i class="fas fa-microchip"></i> Processed via K8s AI Worker</li>';
             
             return; 
         }
