@@ -1,38 +1,39 @@
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; //stored in secret
-const ROLE = process.env.ROLE || 'all'; 
+const ROLE = process.env.ROLE || 'all'; // 'api', 'worker', or 'all'
 
-const express = require('express');
-const http = require('http');
-const { Server } = require("socket.io");
-const os = require('os');
-const crypto = require('crypto');
-const Redis = require('ioredis');
-const { Blob } = require('buffer'); 
+const express = require('express'); // web server
+const http = require('http'); // http
+const { Server } = require("socket.io"); // socket.io
+const os = require('os'); // operating system
+const crypto = require('crypto'); // crypto
+const Redis = require('ioredis'); // redis
+const { Blob } = require('buffer'); // blob
+const srtParser2 = require("srt-parser-2").default; // srt parser
 
 // -------------------------------------------------------------
-const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
-const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
-const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
-const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; // redis host
+const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis master
+const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis worker
+const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis sub
 
-redisMaster.on('error', (err) => console.error('Redis Master hiba (keresem a kapcsolatot...)'));
-redisWorker.on('error', (err) => console.error('Redis Worker hiba (keresem a kapcsolatot...)'));
-redisSub.on('error', (err) => console.error('Redis Sub hiba (keresem a kapcsolatot...)'));
+redisMaster.on('error', (err) => console.error('Redis Master error'));
+redisWorker.on('error', (err) => console.error('Redis Worker error'));
+redisSub.on('error', (err) => console.error('Redis Sub error'));
 
-const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redis ai worker
 
 process.on('uncaughtException', (err) => {
-    console.error('Kritikus hiba:', err.message);
+    console.error('Critical error:', err.message);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Kezeletlen Promise hiba:', reason);
+    console.error('Unhandled rejection:', reason);
 });
 // -------------------------------------------------------------
 
-let startUsage = process.cpuUsage();
-let startTime = process.hrtime.bigint();
-let currentMode = 'normal';
+let startUsage = process.cpuUsage(); // start usage
+let startTime = process.hrtime.bigint(); // start time
+let currentMode = 'normal'; // current mode
 let memoryHog = [];
 
 redisSub.subscribe('system_mode');
@@ -54,6 +55,9 @@ if (ROLE === 'api' || ROLE === 'all') {
     const server = http.createServer(app);
     const io = new Server(server, { maxHttpBufferSize: 2e6 });
     const PORT = 3000;
+    
+    // store the translations in memory for the api
+    const activeTranslations = {};
 
     app.use(express.json({ limit: '2mb' }));
     app.use(express.static('public'));
@@ -93,11 +97,11 @@ if (ROLE === 'api' || ROLE === 'all') {
             });
             await pipeline.exec();
         });
+        
         socket.on('analyze image', async (data, callback) => {
             const taskId = 'ai_' + crypto.randomUUID();
             const responseChannel = `ai_result_${taskId}`;
             
-            // 1. LÉPÉS: ELŐBB feliratkozunk a válaszra!
             const sub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
             await sub.subscribe(responseChannel);
             
@@ -109,11 +113,62 @@ if (ROLE === 'api' || ROLE === 'all') {
                 }
             });
 
-            // 2. LÉPÉS: CSAK UTÁNA dobjuk be a feladatot a közösbe!
             await redisMaster.lpush('ai_tasks', JSON.stringify({
                 taskId: taskId,
                 image: data.image
             }));
+        });
+
+        // subtitle translation api logic
+        socket.on('translate subtitle', async (srtText) => {
+            try {
+                const parser = new srtParser2();
+                const srtArray = parser.fromSrt(srtText);
+                const jobId = 'sub_' + crypto.randomUUID();
+
+                activeTranslations[jobId] = {
+                    total: srtArray.length,
+                    received: 0,
+                    lines: srtArray,
+                    socket: socket
+                };
+
+                const sub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+                await sub.subscribe(`sub_result_${jobId}`);
+                
+                sub.on('message', (channel, message) => {
+                    const data = JSON.parse(message);
+                    const job = activeTranslations[jobId];
+                    if (!job) return;
+
+                    job.lines[data.index].text = data.translatedText;
+                    job.received++;
+
+                    const progress = Math.round((job.received / job.total) * 100);
+                    job.socket.emit('subtitle progress', { progress, received: job.received, total: job.total });
+
+                    if (job.received === job.total) {
+                        const translatedSrt = parser.toSrt(job.lines);
+                        job.socket.emit('subtitle done', { srt: translatedSrt });
+                        delete activeTranslations[jobId];
+                        sub.unsubscribe();
+                        sub.quit();
+                    }
+                });
+
+                const pipeline = redisMaster.pipeline();
+                srtArray.forEach((line, index) => {
+                    pipeline.lpush('translate_tasks', JSON.stringify({
+                        jobId: jobId,
+                        index: index,
+                        text: line.text
+                    }));
+                });
+                await pipeline.exec();
+
+            } catch (err) {
+                socket.emit('subtitle error', 'Hiba a fájl feldolgozásakor: ' + err.message);
+            }
         });
 
         socket.on('disconnect', () => { delete clients[socket.id]; });
@@ -179,11 +234,11 @@ setInterval(() => {
 
 
 function stringToColor(str) {
-    let hash = 0;
+    let hash = 0; 
     for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        hash = str.charCodeAt(i) + ((hash << 5) - hash); // hash calculation
     }
-    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase(); // color calculation
     return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
@@ -191,16 +246,29 @@ if (ROLE === 'worker' || ROLE === 'all') {
     console.log(`[WORKER] Inicializálva a ${os.hostname()} node-on.`);
     
     let objectDetectorPipeline = null;
+    let translatorPipeline = null; // subtitle translation ai
 
     async function getAiPipeline() {
         if (!objectDetectorPipeline) {
-            console.log(`[WORKER ${os.hostname()}] AI Modell betöltése a memóriába...`);
+            console.log(`[WORKER ${os.hostname()}] Object Detector AI Modell betöltése a memóriába...`);
             const { pipeline, env } = await import('@huggingface/transformers');
             env.allowLocalModels = false; 
             objectDetectorPipeline = await pipeline('object-detection', 'Xenova/detr-resnet-50');
-            console.log(`[WORKER ${os.hostname()}] AI Modell KÉSZ!`);
+            console.log(`[WORKER ${os.hostname()}] Object Detector KÉSZ!`);
         }
         return objectDetectorPipeline;
+    }
+
+    // subtitle translation ai initialization
+    async function getTranslatorPipeline() {
+        if (!translatorPipeline) {
+            console.log(`[WORKER ${os.hostname()}] NLP Fordító AI betöltése...`);
+            const { pipeline, env } = await import('@huggingface/transformers');
+            env.allowLocalModels = false;
+            translatorPipeline = await pipeline('translation', 'Xenova/opus-mt-en-hu');
+            console.log(`[WORKER ${os.hostname()}] NLP Fordító AI KÉSZ!`);
+        }
+        return translatorPipeline;
     }
 
     async function aiWorkerLoop() {
@@ -242,6 +310,28 @@ if (ROLE === 'worker' || ROLE === 'all') {
             }
         }
         setImmediate(aiWorkerLoop);
+    }
+
+    // subtitle translation worker loop
+    async function translateWorkerLoop() {
+        try {
+            const taskRaw = await redisWorker.brpop('translate_tasks', 1);
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]);
+                const translator = await getTranslatorPipeline();
+                
+                const result = await translator(task.text);
+                const translatedText = result[0].translation_text;
+
+                redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
+                    index: task.index,
+                    translatedText: translatedText
+                }));
+            }
+        } catch (err) {
+            console.error("Translate Worker hiba:", err);
+        }
+        setImmediate(translateWorkerLoop);
     }
 
     async function workerLoop() {
@@ -333,6 +423,9 @@ if (ROLE === 'worker' || ROLE === 'all') {
         }
         setImmediate(workerLoop);
     }
+    
+    // start all three worker processes in parallel
     aiWorkerLoop();
+    translateWorkerLoop();
     workerLoop();
 }

@@ -23,20 +23,20 @@ const commonOptions = {
     }
 };
 
-const cpuCtx = document.getElementById('cpuChart').getContext('2d');
-const cpuGradient = cpuCtx.createLinearGradient(0, 0, 0, 400);
-cpuGradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
-cpuGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+const cpuCtx = document.getElementById('cpuChart').getContext('2d'); // cpu chart context
+const cpuGradient = cpuCtx.createLinearGradient(0, 0, 0, 400); // cpu gradient
+cpuGradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)'); // cpu gradient stop 0
+cpuGradient.addColorStop(1, 'rgba(239, 68, 68, 0)'); // cpu gradient stop 1
 const cpuChart = new Chart(cpuCtx, {
     type: 'line',
     data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#ef4444', backgroundColor: cpuGradient, borderWidth: 2, fill: true, tension: 0.4 }] },
     options: commonOptions
 });
 
-const memCtx = document.getElementById('memChart').getContext('2d');
-const memGradient = memCtx.createLinearGradient(0, 0, 0, 400);
-memGradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
-memGradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+const memCtx = document.getElementById('memChart').getContext('2d'); // mem chart context
+const memGradient = memCtx.createLinearGradient(0, 0, 0, 400); // mem gradient
+memGradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); // mem gradient stop 0
+memGradient.addColorStop(1, 'rgba(59, 130, 246, 0)'); // mem gradient stop 1
 const memChart = new Chart(memCtx, {
     type: 'line',
     data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#3b82f6', backgroundColor: memGradient, borderWidth: 2, fill: true, tension: 0.4 }] },
@@ -55,6 +55,7 @@ let isSystemOnline = false;
 const statusLabel = document.getElementById('connectionStatus');
 const statusDot = document.querySelector('.status-indicator');
 
+// on connect
 socket.on('connect', () => {
     isSystemOnline = true; 
     statusLabel.textContent = "Live Connection";
@@ -63,6 +64,7 @@ socket.on('connect', () => {
     statusDot.style.boxShadow = "0 0 10px rgba(16, 185, 129, 0.4)";
 });
 
+// on disconnect
 socket.on('disconnect', () => {
     isSystemOnline = false; 
     statusLabel.textContent = "Offline (Reconnecting...)";
@@ -71,15 +73,17 @@ socket.on('disconnect', () => {
     statusDot.style.boxShadow = "none";
 });
 
-let myConnectedPodName = ""; 
+let myConnectedPodName = ""; // my connected pod name
 
+// on init info
 socket.on('init info', (data) => {
     if(data && data.hostname) {
-        myConnectedPodName = data.hostname; 
-        updatePodInfo(data.hostname);
+        myConnectedPodName = data.hostname; // my connected pod name
+        updatePodInfo(data.hostname); // update pod info
     }
 });
 
+// on stats update
 socket.on('stats update', (data) => {
     if (data.hostname !== myConnectedPodName) return; // filter only my connected pod stats
 
@@ -116,7 +120,6 @@ let podStats = {};
 let totalTiles = 0;
 let completedTiles = 0;
 let leaderboardTimeout = null;
-
 
 let aiMemoryInterval = null;
 
@@ -164,10 +167,10 @@ function stopAiMemorySampling(peakMB) {
 } 
 
 async function startDistributedRender() {
-    if (!isSystemOnline) { alert("ðŸš¨ Rendszer offline!"); return; }
+    if (!isSystemOnline) { alert("🚨 Rendszer offline!"); return; }
 
     const fileInput = document.getElementById('imageInput');
-    if (!fileInput.files || !fileInput.files[0]) { alert("Nincs kivÃ¡lasztva kÃ©p!"); return; }
+    if (!fileInput.files || !fileInput.files[0]) { alert("Nincs kiválasztva kép!"); return; }
 
     const TASK_MODE = document.getElementById('taskMode').value;
     const GRID_SIZE = parseInt(document.getElementById('gridSize').value);
@@ -446,3 +449,57 @@ function toggleTechModal(show) {
         }, 300);
     }
 }
+
+// subtitle translation logic
+const srtInput = document.getElementById('srtInput');
+const translateBtn = document.getElementById('translateBtn');
+const subStatus = document.getElementById('subStatus');
+
+translateBtn.onclick = () => {
+    if (!srtInput.files || !srtInput.files[0]) {
+        alert("Kérlek válassz ki egy .srt fájlt!");
+        return;
+    }
+    
+    const file = srtInput.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        const srtText = e.target.result;
+        translateBtn.disabled = true;
+        subStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Inicializálás...';
+        
+        // send the file to the socket.io
+        socket.emit('translate subtitle', srtText);
+    };
+    
+    reader.readAsText(file);
+};
+
+// update the progress
+socket.on('subtitle progress', (data) => {
+    subStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> Fordítás: <span style="color: #10b981;">${data.progress}%</span> (${data.received} / ${data.total} mondat)`;
+});
+
+// error handling
+socket.on('subtitle error', (err) => {
+    subStatus.innerHTML = `<span style="color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> ${err}</span>`;
+    translateBtn.disabled = false;
+});
+
+// start the download
+socket.on('subtitle done', (data) => {
+    subStatus.innerHTML = `<span style="color: #10b981;"><i class="fas fa-check-circle"></i> Kész! Letöltés elindítva.</span>`;
+    translateBtn.disabled = false;
+    
+    // create the blob and automatically download
+    const blob = new Blob([data.srt], { type: 'text/srt' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = srtInput.files[0].name.replace('.srt', '_HU.srt');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});

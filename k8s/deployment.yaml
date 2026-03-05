@@ -1,6 +1,6 @@
 # k8s/deployment.yaml
 
-# api
+# api deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,7 +48,7 @@ spec:
             memory: "512Mi"  
 
 ---
-# api service
+# api service for port 80
 apiVersion: v1
 kind: Service
 metadata:
@@ -62,7 +62,7 @@ spec:
   type: ClusterIP
 ---
 
-# worker
+# worker deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -105,7 +105,7 @@ spec:
 
 ---  
 
-# nginx
+# nginx deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -134,7 +134,7 @@ spec:
         configMap:
           name: nginx-conf
 ---
-# service for port 80
+# nginx service for port 80
 apiVersion: v1
 kind: Service
 metadata:
@@ -147,7 +147,7 @@ spec:
       targetPort: 80
   type: LoadBalancer
 
-# redis
+# redis deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -169,7 +169,7 @@ spec:
         - containerPort: 6379
 
 ---
-# redis
+# redis service
 apiVersion: v1
 kind: Service
 metadata:
