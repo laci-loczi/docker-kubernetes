@@ -345,37 +345,41 @@ if (ROLE === 'worker' || ROLE === 'all') {
             const taskRaw = await redisTranslateWorker.brpop('translate_tasks', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]);
-                console.log(`\n[WORKER ${os.hostname()}] ---> Új feladat a Redisből! [Sor index: ${task.index}]`);
-                console.log(`[WORKER ${os.hostname()}] Eredeti SRT szöveg: "${task.text}"`);
                 
                 try {
-                    let translatedText = task.text;
+                    let finalTranslatedText = task.text;
                     
                     if (task.text && task.text.trim() !== "") {
-                        // clean the text: remove all html tags (pl. <i>) and replace the new lines (\n) with spaces
-                        const cleanText = task.text.replace(/<[^>]*>?/gm, '').replace(/\n/g, ' ').trim();
+                        // CLEANING: remove all html tags, but keep the line breaks (\n)
+                        const cleanText = task.text.replace(/<[^>]*>?/gm, '').trim();
+                        
+                        // break the subtitle block into individual lines (usually 1 or 2 lines)
+                        const lines = cleanText.split('\n');
+                        const translatedLines = [];
                         
                         const translator = await getTranslatorPipeline();
                         
-                        console.log(`[WORKER ${os.hostname()}] AI motor forró. Fordítás futtatása ezen: "${cleanText}" ... (Ez az elsőnél eltarthat 1-2 percig!)`);
-                        const startTime = Date.now();
+                        // iterate through the lines, and submit them one by one to the ai model
+                        for (let i = 0; i < lines.length; i++) {
+                            const line = lines[i].trim();
+                            if (line === "") {
+                                translatedLines.push("");
+                            } else {
+                                // translate the clean line
+                                const result = await translator(line);
+                                translatedLines.push(result[0].translation_text);
+                            }
+                        }
                         
-                        // here the actual computation happens
-                        const result = await translator(cleanText);
-                        
-                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                        translatedText = result[0].translation_text;
-                        console.log(`[WORKER ${os.hostname()}] SIKERES FORDÍTÁS (${elapsed} másodperc alatt): "${translatedText}"`);
-                    } else {
-                        console.log(`[WORKER ${os.hostname()}] Üres sor, átugorjuk az AI-t.`);
+                        // reassemble the block with the original line breaks
+                        finalTranslatedText = translatedLines.join('\n');
                     }
 
                     // publish the result to the api
                     redisMaster.publish(`sub_result_${task.jobId}`, JSON.stringify({
                         index: task.index,
-                        translatedText: translatedText
+                        translatedText: finalTranslatedText
                     }));
-                    console.log(`[WORKER ${os.hostname()}] Eredmény visszaküldve a böngészőnek! <---`);
                     
                 } catch (aiErr) {
                     console.error(`[WORKER ${os.hostname()}] !!! AI Fordítási hiba:`, aiErr.message);
