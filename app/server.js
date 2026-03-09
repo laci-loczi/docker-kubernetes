@@ -538,7 +538,6 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(workerLoop);
     }
     
-// --- ÚJ: OLLAMA LLM WORKER CIKLUS ---
 async function ollamaWorkerLoop() {
     try {
         const taskRaw = await redisOllamaWorker.brpop('translate_tasks_ollama', 1);
@@ -573,8 +572,6 @@ async function ollamaWorkerLoop() {
                     const textChunk = textToTranslateArray.join('\n');
                     console.log(`[WORKER] Küldés az Ollama Podnak (${textToTranslateArray.length} sor)...`);
                     
-                    // REST API HÍVÁS A KLASZTEREN BELÜLI OLLAMA PODHOZ
-                    // NODE 18 beépített fetch api-ját használjuk!
                     const response = await fetch('http://ollama-service:11434/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -583,23 +580,32 @@ async function ollamaWorkerLoop() {
                             messages: [
                                 { 
                                     role: "system", 
-                                    content: "You are a professional Netflix subtitle translator. Translate the following Hungarian subtitles to natural, cinematic English. IMPORTANT: Return ONLY the translated text line-by-line. Do not add any conversational text, explanations, or quotes. Keep the exact number of lines." 
+                                    content: "You are a professional Netflix subtitle translator. Translate the following English subtitles to natural, cinematic Hungarian.\n\nSTRICT RULES:\n1. ONLY output the translated text.\n2. NO conversational filler (e.g. 'Here are the subtitles', 'Sure').\n3. DO NOT output the original English text.\n4. Maintain the exact same number of lines as the input." 
                                 },
                                 { role: "user", content: textChunk }
                             ],
-                            stream: false
+                            stream: false,
+                            options: {
+                                temperature: 0.1 
+                            }
                         })
                     });
 
                     const responseData = await response.json();
-                    const llmOutput = responseData.message.content.trim();
-                    translatedValidLines = llmOutput.split('\n').map(l => l.trim());
+                    let llmOutput = responseData.message.content.trim();
                     
-                    // Biztonsági igazítás, ha az AI eltért a sorszámtól
+                    llmOutput = llmOutput.replace(/^(Here are.*|Here is.*|Sure.*|Translated.*):\s*\n/gi, '');
+                    
+                    translatedValidLines = llmOutput.split('\n').map(l => l.trim()).filter(l => l !== '');
+                    
                     if (translatedValidLines.length !== textToTranslateArray.length) {
-                        console.warn("[WORKER] Az LLM eltért a sorszámtól! Nyers igazítás...");
-                        while(translatedValidLines.length < textToTranslateArray.length) translatedValidLines.push("...");
-                        translatedValidLines = translatedValidLines.slice(0, textToTranslateArray.length);
+                        console.warn(`[WORKER] LLM eltérés! Várt: ${textToTranslateArray.length}, Kapott: ${translatedValidLines.length}`);
+                        
+                        if (translatedValidLines.length > textToTranslateArray.length) {
+                            translatedValidLines = translatedValidLines.slice(-textToTranslateArray.length);
+                        } else {
+                            while(translatedValidLines.length < textToTranslateArray.length) translatedValidLines.push("...");
+                        }
                     }
                 }
 
