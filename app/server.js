@@ -580,13 +580,13 @@ async function ollamaWorkerLoop() {
                             messages: [
                                 { 
                                     role: "system", 
-                                    content: "You are a professional Netflix subtitle translator. Translate the following English subtitles to natural, cinematic Hungarian.\n\nSTRICT RULES:\n1. ONLY output the translated text.\n2. NO conversational filler (e.g. 'Here are the subtitles', 'Sure').\n3. DO NOT output the original English text.\n4. Maintain the exact same number of lines as the input." 
+                                    content: "You are a top-tier Netflix localization expert translating English movie subtitles to Hungarian.\n\nCRITICAL RULES:\n1. TRANSLATE MEANING, NOT WORDS: Never do literal word-for-word translations. Use natural, everyday Hungarian idioms and phrasing (e.g., understand the context, use correct suffixes). Avoid 'Hunglish'.\n2. HUNGARIAN GRAMMAR: Use correct Hungarian name order and titles (e.g., 'Mariann asszony' instead of 'Mrs. Mariann').\n3. FORMAT: Preserve all dialogue hyphens ('- ').\n4. STRICT OUTPUT: Output ONLY the translated Hungarian text line-by-line. NO introductions, NO explanations, NO English.\n5. LINE COUNT: You MUST return the EXACT same number of lines as the input." 
                                 },
                                 { role: "user", content: textChunk }
                             ],
                             stream: false,
                             options: {
-                                temperature: 0.1 
+                                temperature: 0.3 // little warmer
                             }
                         })
                     });
