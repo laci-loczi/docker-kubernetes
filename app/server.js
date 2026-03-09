@@ -572,42 +572,24 @@ async function ollamaWorkerLoop() {
                     const textChunk = textToTranslateArray.join('\n');
                     console.log(`[WORKER] Küldés az Ollama Podnak (${textToTranslateArray.length} sor)...`);
                     
-                   // REST API HÍVÁS A KLASZTEREN BELÜLI OLLAMA PODHOZ
                    const response = await fetch('http://ollama-service:11434/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: "aya", 
+                        model: "gemma2", 
                         messages: [
                             { 
                                 role: "system", 
-                                content: `You are an elite Hollywood subtitle translator localizing English subtitles to Hungarian. 
-
-CRITICAL RULES:
-1. NEVER translate word-for-word. Use natural, modern Hungarian phrasing.
-2. Adapt English idioms to their Hungarian equivalents. (e.g., "Get it in there" for a shoe means "Bújj bele" or "Próbáld fel", NOT "Belecsinálod").
-3. Keep the exact same number of lines as the input.
-4. Output ONLY the Hungarian text. No introductions, no notes.
-
-EXAMPLES:
-EN: "Is the right foot all right?"
-HU: "A jobb lábadon jó?"
-
-EN: "There you go. Get it in there."
-HU: "Tessék. Bújj bele."
-
-EN: "You're a lucky lady."
-HU: "Szerencsés hölgy."`
+                                content: "You are a professional Hungarian translator. Translate the following English movie subtitles into natural, conversational Hungarian. DO NOT translate word-for-word. Adapt idioms to Hungarian equivalents. Output ONLY the translated Hungarian text, line-by-line. Keep the exact same number of lines as the input. Do not add any notes." 
                             },
                             { role: "user", content: textChunk }
                         ],
                         stream: false,
                         options: {
-                            temperature: 0.2 // Alacsony hőfok a precizitásért
+                            temperature: 0.1 
                         }
                     })
                 });
-
                     const responseData = await response.json();
                     let llmOutput = responseData.message.content.trim();
                     
