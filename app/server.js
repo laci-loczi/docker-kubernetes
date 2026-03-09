@@ -572,24 +572,41 @@ async function ollamaWorkerLoop() {
                     const textChunk = textToTranslateArray.join('\n');
                     console.log(`[WORKER] Küldés az Ollama Podnak (${textToTranslateArray.length} sor)...`);
                     
-                    const response = await fetch('http://ollama-service:11434/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            model: "llama3",
-                            messages: [
-                                { 
-                                    role: "system", 
-                                    content: "You are a top-tier Netflix localization expert translating English movie subtitles to Hungarian.\n\nCRITICAL RULES:\n1. TRANSLATE MEANING, NOT WORDS: Never do literal word-for-word translations. Use natural, everyday Hungarian idioms and phrasing (e.g., understand the context, use correct suffixes). Avoid 'Hunglish'.\n2. HUNGARIAN GRAMMAR: Use correct Hungarian name order and titles (e.g., 'Mariann asszony' instead of 'Mrs. Mariann').\n3. FORMAT: Preserve all dialogue hyphens ('- ').\n4. STRICT OUTPUT: Output ONLY the translated Hungarian text line-by-line. NO introductions, NO explanations, NO English.\n5. LINE COUNT: You MUST return the EXACT same number of lines as the input." 
-                                },
-                                { role: "user", content: textChunk }
-                            ],
-                            stream: false,
-                            options: {
-                                temperature: 0.3 // little warmer
-                            }
-                        })
-                    });
+                   // REST API HÍVÁS A KLASZTEREN BELÜLI OLLAMA PODHOZ
+                   const response = await fetch('http://ollama-service:11434/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: "qwen2.5", // FIGYELEM: Modell lecserélve!
+                        messages: [
+                            { 
+                                role: "system", 
+                                content: `You are an elite Hollywood subtitle translator localizing English subtitles to Hungarian. 
+
+CRITICAL RULES:
+1. NEVER translate word-for-word. Use natural, modern Hungarian phrasing.
+2. Adapt English idioms to their Hungarian equivalents. (e.g., "Get it in there" for a shoe means "Bújj bele" or "Próbáld fel", NOT "Belecsinálod").
+3. Keep the exact same number of lines as the input.
+4. Output ONLY the Hungarian text. No introductions, no notes.
+
+EXAMPLES:
+EN: "Is the right foot all right?"
+HU: "A jobb lábadon jó?"
+
+EN: "There you go. Get it in there."
+HU: "Tessék. Bújj bele."
+
+EN: "You're a lucky lady."
+HU: "Szerencsés hölgy."`
+                            },
+                            { role: "user", content: textChunk }
+                        ],
+                        stream: false,
+                        options: {
+                            temperature: 0.2 // Alacsony hőfok a precizitásért
+                        }
+                    })
+                });
 
                     const responseData = await response.json();
                     let llmOutput = responseData.message.content.trim();
