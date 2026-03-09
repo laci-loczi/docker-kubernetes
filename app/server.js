@@ -542,7 +542,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(workerLoop);
     }
 
-    //deepl
+    //deepl not chunking
     async function deeplWorkerLoop() {
         try {
             const taskRaw = await redisDeeplWorker.brpop('translate_tasks_deepl', 1);
@@ -553,30 +553,15 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
                     if (!DEEPL_API_KEY) throw new Error("A DEEPL_API_KEY nincs beállítva a környezeti változók között!");
 
-                    let flatLines = [];
-                    let lineMapping = []; 
-
-                    task.items.forEach((itemText, itemIdx) => {
+                    let xmlDocument = "";
+                    task.items.forEach((itemText, idx) => {
                         const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
-                        const subLines = cleanText.split('\n');
-                        subLines.forEach(sl => {
-                            flatLines.push(sl.trim());
-                            lineMapping.push(itemIdx);
-                        });
+                        xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
                     });
 
-                    const validIndices = [];
-                    const validLinesToTranslate = [];
-                    flatLines.forEach((line, idx) => {
-                        if (line !== "") {
-                            validIndices.push(idx);
-                            validLinesToTranslate.push(line);
-                        }
-                    });
-
-                    let translatedValidLines = [];
+                    let translatedItems = new Array(task.items.length).fill("");
                     
-                    if (validLinesToTranslate.length > 0) {
+                    if (xmlDocument.trim() !== "") {
                         const response = await fetch('https://api-free.deepl.com/v2/translate', {
                             method: 'POST',
                             headers: {
@@ -584,10 +569,11 @@ if (ROLE === 'worker' || ROLE === 'all') {
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
-                                text: validLinesToTranslate,
+                                text: [xmlDocument], 
                                 target_lang: 'HU',
                                 source_lang: 'EN',
-                                formality: 'prefer_less' 
+                                formality: 'prefer_less', 
+                                tag_handling: 'xml' 
                             })
                         });
 
@@ -597,23 +583,22 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         }
 
                         const responseData = await response.json();
-                        translatedValidLines = responseData.translations.map(t => t.text);
+                        const translatedXml = responseData.translations[0].text;
+
+                        // 3. Visszaparzoljuk az XML-t az eredeti SRT idősávokba
+                        task.items.forEach((_, idx) => {
+                            // Megkeressük a lefordított XML-ben az <sX> és </sX> közötti részt
+                            const regex = new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i');
+                            const match = translatedXml.match(regex);
+                            
+                            if (match && match[1]) {
+                                // A DeepL néha betesz extra szóközöket, ezt letakarítjuk
+                                translatedItems[idx] = match[1].trim();
+                            } else {
+                                translatedItems[idx] = " "; // Ha valamiért üres lenne
+                            }
+                        });
                     }
-
-                    const finalFlatLines = [...flatLines];
-                    validIndices.forEach((flatIdx, i) => {
-                        finalFlatLines[flatIdx] = translatedValidLines[i];
-                    });
-
-                    const translatedItems = new Array(task.items.length).fill("");
-                    finalFlatLines.forEach((line, flatIdx) => {
-                        const itemIdx = lineMapping[flatIdx];
-                        if (translatedItems[itemIdx] === "") {
-                            translatedItems[itemIdx] = line;
-                        } else {
-                            translatedItems[itemIdx] += '\n' + line;
-                        }
-                    });
 
                     redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({
                         startIndex: task.startIndex,
