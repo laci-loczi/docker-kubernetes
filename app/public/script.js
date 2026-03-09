@@ -537,3 +537,61 @@ socket.on('subtitle done', (data) => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 });
+
+//testing with ollama
+const ollamaSrtInput = document.getElementById('ollamaSrtInput');
+const ollamaTranslateBtn = document.getElementById('ollamaTranslateBtn');
+const ollamaSubStatus = document.getElementById('ollamaSubStatus');
+const ollamaPasswordInput = document.getElementById('ollamaPassword');
+
+ollamaTranslateBtn.onclick = () => {
+    if (isProcessingTask) { alert("Már folyamatban van egy feladat!"); return; }
+    
+    const password = ollamaPasswordInput.value;
+    if (!password) { alert("Kérlek add meg az admin jelszót!"); return; }
+    
+    if (!ollamaSrtInput.files || !ollamaSrtInput.files[0]) {
+        alert("Kérlek válassz ki egy .srt fájlt!");
+        return;
+    }
+    
+    isProcessingTask = true;
+    const file = ollamaSrtInput.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        const srtText = e.target.result;
+        ollamaTranslateBtn.disabled = true;
+        ollamaSubStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Inicializálás...';
+        
+        socket.emit('translate subtitle ollama', { srtText: srtText, password: password });
+    };
+    
+    reader.readAsText(file);
+};
+
+socket.on('ollama progress', (data) => {
+    ollamaSubStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> Llama 3 Fordítás: <span style="color: #8b5cf6;">${data.progress}%</span> (${data.received} / ${data.total} mondat)`;
+});
+
+socket.on('ollama error', (err) => {
+    isProcessingTask = false;
+    ollamaSubStatus.innerHTML = `<span style="color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> ${err}</span>`;
+    ollamaTranslateBtn.disabled = false;
+});
+
+socket.on('ollama done', (data) => {
+    isProcessingTask = false;
+    ollamaSubStatus.innerHTML = `<span style="color: #10b981;"><i class="fas fa-check-circle"></i> Kész! LLM Letöltés elindítva.</span>`;
+    ollamaTranslateBtn.disabled = false;
+    
+    const blob = new Blob([data.srt], { type: 'text/srt' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ollamaSrtInput.files[0].name.replace('.srt', '_OLLAMA_EN.srt');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});

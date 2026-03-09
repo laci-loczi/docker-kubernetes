@@ -1,7 +1,7 @@
 pipeline {
     agent any
     environment {
-        PATH = "${WORKSPACE}:${PATH}"
+        PATH = "${WORKSPACE}:${PATH}" 
         IMAGE_TAG = "my-node-app:${BUILD_NUMBER}"
         IMAGE_LATEST = "my-node-app:latest"
     }
@@ -9,7 +9,7 @@ pipeline {
         stage('Setup Tools') {
             steps {
                 script {
-                    // Cache docker and kubectl binaries — only download if missing
+                    // cache docker and kubectl binaries, download if missing
                     if (!fileExists('docker/docker')) {
                         sh 'curl -fsSLO https://download.docker.com/linux/static/stable/x86_64/docker-24.0.5.tgz'
                         sh 'tar xzvf docker-24.0.5.tgz --strip 1 -C . docker/docker'
@@ -24,7 +24,7 @@ pipeline {
         }
         stage('Build Docker Image') {
             steps {
-                // Tag with build number for rollback capability
+                // tagging build number for rollback
                 sh "./docker build -t ${IMAGE_TAG} -t ${IMAGE_LATEST} ./app"
             }
         }
@@ -41,11 +41,11 @@ pipeline {
     }
     post {
         success {
-            // Only prune images older than 24h — keeps last few builds for rollback
+            //keeps last few builds for rollback, delete older images
             sh './docker image prune -f --filter "until=24h"'
         }
         failure {
-            // On failure, remove only the just-built image to reclaim space
+            // if the build fails, remove the just-built image to reclaim space
             sh "./docker rmi ${IMAGE_TAG} || true"
         }
     }

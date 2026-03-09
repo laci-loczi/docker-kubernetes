@@ -1,20 +1,22 @@
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ROLE = process.env.ROLE || 'all'; 
 
-const express = require('express');
-const http = require('http');
-const { Server } = require("socket.io");
-const os = require('os');
-const crypto = require('crypto');
-const Redis = require('ioredis');
-const { Blob } = require('buffer');
+const express = require('express'); // express is a web framework for node.js
+const http = require('http'); // http is a module for creating http servers
+const { Server } = require("socket.io"); // socket.io is a module for creating websocket servers
+const os = require('os'); // os is a module for getting information about the operating system
+const crypto = require('crypto'); // crypto is a module for creating cryptographic hash functions
+const Redis = require('ioredis'); // ioredis is a module for interacting with redis databases
+const { Blob } = require('buffer'); // buffer is a module for creating buffers
 
 const REDIS_HOST = process.env.REDIS_HOST || 'redis-service'; 
-const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
-const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
-const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
-const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
-const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
+const redisMaster = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisMaster is a redis client for interacting with the master redis database
+const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisWorker is a redis client for interacting with the worker redis database
+const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisSub is a redis client for interacting with the subscriber redis database
+const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisTranslateWorker is a redis client for interacting with the translate worker redis database
+const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisAiWorker is a redis client for interacting with the ai worker redis database
+
+const redisOllamaWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); //ollama test
 
 redisMaster.on('error', (err) => console.error('Redis Master error'));
 redisWorker.on('error', (err) => console.error('Redis Worker error'));
@@ -41,6 +43,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     
     const activeTranslations = {};
     const activeAiTasks = {}; // optimization: track the open ai requests
+    const activeOllamaTranslations = {};
 
     app.use(express.json({ limit: '2mb' }));
     app.use(express.static('public'));
@@ -53,6 +56,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     // subscribe to the single redisSub connection for everything!
     redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*');
     redisSub.subscribe('system_stats');
+    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'ollama_sub_result_*');
 
     redisSub.on('pmessage', (pattern, channel, message) => {
         if (pattern === 'job_results_*') {
@@ -84,6 +88,29 @@ if (ROLE === 'api' || ROLE === 'all') {
                     job.socket.emit('subtitle done', { srt: translatedSrt });
                 } catch (e) { console.error("[API] SRT Fájl generálási hiba:", e); }
                 delete activeTranslations[jobId];
+            }
+        }
+        else if (pattern === 'ollama_sub_result_*') {
+            const data = JSON.parse(message);
+            const jobId = channel.replace('ollama_sub_result_', '');
+            const job = activeOllamaTranslations[jobId];
+            if (!job) return; 
+
+            data.translatedItems.forEach((transText, i) => {
+                if (job.lines[data.startIndex + i]) job.lines[data.startIndex + i].text = transText;
+            });
+            job.received++; 
+
+            const currentLinesDone = Math.min(job.received * 30, job.lines.length);
+            const progress = Math.round((job.received / job.total) * 100);
+            job.socket.emit('ollama progress', { progress, received: currentLinesDone, total: job.lines.length });
+
+            if (job.received === job.total) {
+                try {
+                    const translatedSrt = job.parser.toSrt(job.lines);
+                    job.socket.emit('ollama done', { srt: translatedSrt });
+                } catch (e) { console.error("[API] Ollama SRT generálási hiba:", e); }
+                delete activeOllamaTranslations[jobId];
             }
         }
         else if (pattern === 'ai_result_*') {
@@ -190,6 +217,43 @@ if (ROLE === 'api' || ROLE === 'all') {
             }
         });
 
+        socket.on('translate subtitle ollama', async (data) => {
+            try {
+                // get pw
+                if (data.password !== ADMIN_PASSWORD) {
+                    socket.emit('ollama error', 'Hibás admin jelszó! Hozzáférés megtagadva.');
+                    return;
+                }
+
+                const srtParserModule = await import("srt-parser-2");
+                const ParserClass = srtParserModule.default?.default || srtParserModule.default || srtParserModule;
+                const parser = new ParserClass();
+                
+                const srtArray = parser.fromSrt(data.srtText);
+                if (!srtArray || srtArray.length === 0) {
+                    socket.emit('ollama error', 'A fájl üres vagy hibás SRT formátumú.');
+                    return;
+                }
+
+                const jobId = 'ollama_' + crypto.randomUUID();
+                const BATCH_SIZE = 30; 
+                const tasks = [];
+                for (let i = 0; i < srtArray.length; i += BATCH_SIZE) {
+                    tasks.push({ jobId: jobId, startIndex: i, items: srtArray.slice(i, i + BATCH_SIZE).map(c => c.text) });
+                }
+
+                activeOllamaTranslations[jobId] = { total: tasks.length, received: 0, lines: srtArray, socket: socket, parser: parser };
+                socket.emit('ollama progress', { progress: 0, received: 0, total: srtArray.length });
+
+                const pipeline = redisMaster.pipeline();
+                tasks.forEach(t => { pipeline.lpush('translate_tasks_ollama', JSON.stringify(t)); });
+                await pipeline.exec();
+
+            } catch (err) {
+                socket.emit('ollama error', 'Hiba a fájl feldolgozásakor: ' + err.message);
+            }
+        });
+
         socket.on('disconnect', () => { delete clients[socket.id]; });
     });
 
@@ -222,7 +286,7 @@ setInterval(() => {
     const memPercentage = (memUsage.rss / totalSystemMem) * 100;
 
     redisMaster.publish('system_stats', JSON.stringify({
-        cpu: cpuPercentage.toFixed(1), mem: memPercentage.toFixed(2),
+        cpu: cpuPercentage.toFixed(2), mem: memPercentage.toFixed(2),
         memUsed: memUsage.rss, memTotal: totalSystemMem, hostname: os.hostname() 
     }));
 }, 1000);
@@ -474,7 +538,99 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(workerLoop);
     }
     
+// --- ÚJ: OLLAMA LLM WORKER CIKLUS ---
+async function ollamaWorkerLoop() {
+    try {
+        const taskRaw = await redisOllamaWorker.brpop('translate_tasks_ollama', 1);
+        if (taskRaw) {
+            const task = JSON.parse(taskRaw[1]); 
+            
+            try {
+                let flatLines = [];
+                let lineMapping = []; 
+
+                task.items.forEach((itemText, itemIdx) => {
+                    const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
+                    const subLines = cleanText.split('\n');
+                    subLines.forEach(sl => {
+                        flatLines.push(sl.trim());
+                        lineMapping.push(itemIdx);
+                    });
+                });
+
+                const validIndices = [];
+                const textToTranslateArray = [];
+                flatLines.forEach((line, idx) => {
+                    if (line !== "") {
+                        validIndices.push(idx);
+                        textToTranslateArray.push(line);
+                    }
+                });
+
+                let translatedValidLines = [];
+
+                if (textToTranslateArray.length > 0) {
+                    const textChunk = textToTranslateArray.join('\n');
+                    console.log(`[WORKER] Küldés az Ollama Podnak (${textToTranslateArray.length} sor)...`);
+                    
+                    // REST API HÍVÁS A KLASZTEREN BELÜLI OLLAMA PODHOZ
+                    // NODE 18 beépített fetch api-ját használjuk!
+                    const response = await fetch('http://ollama-service:11434/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: "llama3",
+                            messages: [
+                                { 
+                                    role: "system", 
+                                    content: "You are a professional Netflix subtitle translator. Translate the following Hungarian subtitles to natural, cinematic English. IMPORTANT: Return ONLY the translated text line-by-line. Do not add any conversational text, explanations, or quotes. Keep the exact number of lines." 
+                                },
+                                { role: "user", content: textChunk }
+                            ],
+                            stream: false
+                        })
+                    });
+
+                    const responseData = await response.json();
+                    const llmOutput = responseData.message.content.trim();
+                    translatedValidLines = llmOutput.split('\n').map(l => l.trim());
+                    
+                    // Biztonsági igazítás, ha az AI eltért a sorszámtól
+                    if (translatedValidLines.length !== textToTranslateArray.length) {
+                        console.warn("[WORKER] Az LLM eltért a sorszámtól! Nyers igazítás...");
+                        while(translatedValidLines.length < textToTranslateArray.length) translatedValidLines.push("...");
+                        translatedValidLines = translatedValidLines.slice(0, textToTranslateArray.length);
+                    }
+                }
+
+                const finalFlatLines = [...flatLines];
+                validIndices.forEach((flatIdx, i) => { finalFlatLines[flatIdx] = translatedValidLines[i]; });
+
+                const translatedItems = new Array(task.items.length).fill("");
+                finalFlatLines.forEach((line, flatIdx) => {
+                    const itemIdx = lineMapping[flatIdx];
+                    if (translatedItems[itemIdx] === "") translatedItems[itemIdx] = line;
+                    else translatedItems[itemIdx] += '\n' + line;
+                });
+
+                redisMaster.publish(`ollama_sub_result_${task.jobId}`, JSON.stringify({
+                    startIndex: task.startIndex,
+                    translatedItems: translatedItems
+                }));
+            } catch (aiErr) {
+                console.error("Ollama Fordítási hiba:", aiErr.message);
+                redisMaster.publish(`ollama_sub_result_${task.jobId}`, JSON.stringify({
+                    startIndex: task.startIndex,
+                    translatedItems: task.items.map(t => `[LLM HIBA]`)
+                }));
+            }
+        }
+    } catch (err) {}
+    setImmediate(ollamaWorkerLoop);
+}
+
     aiWorkerLoop();
     translateWorkerLoop();
     workerLoop();
+    ollamaWorkerLoop();
 }
