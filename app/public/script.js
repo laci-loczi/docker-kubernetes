@@ -537,3 +537,56 @@ socket.on('subtitle done', (data) => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 });
+
+// testing deepl
+const deeplSrtInput = document.getElementById('deeplSrtInput');
+const deeplTranslateBtn = document.getElementById('deeplTranslateBtn');
+const deeplSubStatus = document.getElementById('deeplSubStatus');
+const deeplPasswordInput = document.getElementById('deeplPassword');
+
+deeplTranslateBtn.onclick = () => {
+    if (isProcessingTask) { alert("Már folyamatban van egy feladat!"); return; }
+    
+    const password = deeplPasswordInput.value;
+    if (!password) { alert("Kérlek add meg az admin jelszót!"); return; }
+    if (!deeplSrtInput.files || !deeplSrtInput.files[0]) return;
+    
+    isProcessingTask = true;
+    const file = deeplSrtInput.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        const srtText = e.target.result;
+        deeplTranslateBtn.disabled = true;
+        deeplSubStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Inicializálás...';
+        
+        socket.emit('translate subtitle deepl', { srtText: srtText, password: password });
+    };
+    reader.readAsText(file);
+};
+
+socket.on('deepl progress', (data) => {
+    deeplSubStatus.innerHTML = `<i class="fas fa-cog fa-spin"></i> DeepL Fordítás: <span style="color: #3b82f6;">${data.progress}%</span> (${data.received} / ${data.total} mondat)`;
+});
+
+socket.on('deepl error', (err) => {
+    isProcessingTask = false;
+    deeplSubStatus.innerHTML = `<span style="color: #ef4444;"><i class="fas fa-exclamation-triangle"></i> ${err}</span>`;
+    deeplTranslateBtn.disabled = false;
+});
+
+socket.on('deepl done', (data) => {
+    isProcessingTask = false;
+    deeplSubStatus.innerHTML = `<span style="color: #10b981;"><i class="fas fa-check-circle"></i> Kész! DeepL Letöltés elindítva.</span>`;
+    deeplTranslateBtn.disabled = false;
+    
+    const blob = new Blob([data.srt], { type: 'text/srt' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = deeplSrtInput.files[0].name.replace('.srt', '_DEEPL_HU.srt');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});

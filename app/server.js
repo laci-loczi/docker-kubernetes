@@ -16,6 +16,8 @@ const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest:
 const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisTranslateWorker is a redis client for interacting with the translate worker redis database
 const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisAiWorker is a redis client for interacting with the ai worker redis database
 
+//deepl exper
+const redisDeeplWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // ÚJ DEEPL REDIS
 
 redisMaster.on('error', (err) => console.error('Redis Master error'));
 redisWorker.on('error', (err) => console.error('Redis Worker error'));
@@ -42,7 +44,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     
     const activeTranslations = {};
     const activeAiTasks = {}; // optimization: track the open ai requests
-    const activeOllamaTranslations = {};
+    const activeDeeplTranslations = {}; // deepl
 
     app.use(express.json({ limit: '2mb' }));
     app.use(express.static('public'));
@@ -55,7 +57,8 @@ if (ROLE === 'api' || ROLE === 'all') {
     // subscribe to the single redisSub connection for everything!
     redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*');
     redisSub.subscribe('system_stats');
-    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'ollama_sub_result_*');
+    //deepl
+    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*');
 
     redisSub.on('pmessage', (pattern, channel, message) => {
         if (pattern === 'job_results_*') {
@@ -89,10 +92,12 @@ if (ROLE === 'api' || ROLE === 'all') {
                 delete activeTranslations[jobId];
             }
         }
-        else if (pattern === 'ollama_sub_result_*') {
+
+        //deepl
+        else if (pattern === 'deepl_sub_result_*') {
             const data = JSON.parse(message);
-            const jobId = channel.replace('ollama_sub_result_', '');
-            const job = activeOllamaTranslations[jobId];
+            const jobId = channel.replace('deepl_sub_result_', '');
+            const job = activeDeeplTranslations[jobId];
             if (!job) return; 
 
             data.translatedItems.forEach((transText, i) => {
@@ -102,14 +107,14 @@ if (ROLE === 'api' || ROLE === 'all') {
 
             const currentLinesDone = Math.min(job.received * 30, job.lines.length);
             const progress = Math.round((job.received / job.total) * 100);
-            job.socket.emit('ollama progress', { progress, received: currentLinesDone, total: job.lines.length });
+            job.socket.emit('deepl progress', { progress, received: currentLinesDone, total: job.lines.length });
 
             if (job.received === job.total) {
                 try {
                     const translatedSrt = job.parser.toSrt(job.lines);
-                    job.socket.emit('ollama done', { srt: translatedSrt });
-                } catch (e) { console.error("[API] Ollama SRT generálási hiba:", e); }
-                delete activeOllamaTranslations[jobId];
+                    job.socket.emit('deepl done', { srt: translatedSrt });
+                } catch (e) { console.error("[API] DeepL SRT generálási hiba:", e); }
+                delete activeDeeplTranslations[jobId];
             }
         }
         else if (pattern === 'ai_result_*') {
@@ -213,6 +218,43 @@ if (ROLE === 'api' || ROLE === 'all') {
 
             } catch (err) {
                 socket.emit('subtitle error', 'Hiba a fájl feldolgozásakor: ' + err.message);
+            }
+        });
+
+        //deepl
+        socket.on('translate subtitle deepl', async (data) => {
+            try {
+                if (data.password !== ADMIN_PASSWORD) {
+                    socket.emit('deepl error', 'Hibás admin jelszó! Hozzáférés megtagadva.');
+                    return;
+                }
+
+                const srtParserModule = await import("srt-parser-2");
+                const ParserClass = srtParserModule.default?.default || srtParserModule.default || srtParserModule;
+                const parser = new ParserClass();
+                
+                const srtArray = parser.fromSrt(data.srtText);
+                if (!srtArray || srtArray.length === 0) {
+                    socket.emit('deepl error', 'A fájl üres vagy hibás SRT formátumú.');
+                    return;
+                }
+
+                const jobId = 'deepl_' + crypto.randomUUID();
+                const BATCH_SIZE = 30; 
+                const tasks = [];
+                for (let i = 0; i < srtArray.length; i += BATCH_SIZE) {
+                    tasks.push({ jobId: jobId, startIndex: i, items: srtArray.slice(i, i + BATCH_SIZE).map(c => c.text) });
+                }
+
+                activeDeeplTranslations[jobId] = { total: tasks.length, received: 0, lines: srtArray, socket: socket, parser: parser };
+                socket.emit('deepl progress', { progress: 0, received: 0, total: srtArray.length });
+
+                const pipeline = redisMaster.pipeline();
+                tasks.forEach(t => { pipeline.lpush('translate_tasks_deepl', JSON.stringify(t)); });
+                await pipeline.exec();
+
+            } catch (err) {
+                socket.emit('deepl error', 'Hiba a fájl feldolgozásakor: ' + err.message);
             }
         });
 
@@ -500,7 +542,97 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(workerLoop);
     }
 
+    //deepl
+    async function deeplWorkerLoop() {
+        try {
+            const taskRaw = await redisDeeplWorker.brpop('translate_tasks_deepl', 1);
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]); 
+                
+                try {
+                    const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
+                    if (!DEEPL_API_KEY) throw new Error("A DEEPL_API_KEY nincs beállítva a környezeti változók között!");
+
+                    let flatLines = [];
+                    let lineMapping = []; 
+
+                    task.items.forEach((itemText, itemIdx) => {
+                        const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
+                        const subLines = cleanText.split('\n');
+                        subLines.forEach(sl => {
+                            flatLines.push(sl.trim());
+                            lineMapping.push(itemIdx);
+                        });
+                    });
+
+                    const validIndices = [];
+                    const validLinesToTranslate = [];
+                    flatLines.forEach((line, idx) => {
+                        if (line !== "") {
+                            validIndices.push(idx);
+                            validLinesToTranslate.push(line);
+                        }
+                    });
+
+                    let translatedValidLines = [];
+                    
+                    if (validLinesToTranslate.length > 0) {
+                        const response = await fetch('https://api-free.deepl.com/v2/translate', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                text: validLinesToTranslate,
+                                target_lang: 'HU',
+                                source_lang: 'EN',
+                                formality: 'prefer_less' 
+                            })
+                        });
+
+                        if (!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(`DeepL API Hiba: ${response.status} - ${errText}`);
+                        }
+
+                        const responseData = await response.json();
+                        translatedValidLines = responseData.translations.map(t => t.text);
+                    }
+
+                    const finalFlatLines = [...flatLines];
+                    validIndices.forEach((flatIdx, i) => {
+                        finalFlatLines[flatIdx] = translatedValidLines[i];
+                    });
+
+                    const translatedItems = new Array(task.items.length).fill("");
+                    finalFlatLines.forEach((line, flatIdx) => {
+                        const itemIdx = lineMapping[flatIdx];
+                        if (translatedItems[itemIdx] === "") {
+                            translatedItems[itemIdx] = line;
+                        } else {
+                            translatedItems[itemIdx] += '\n' + line;
+                        }
+                    });
+
+                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({
+                        startIndex: task.startIndex,
+                        translatedItems: translatedItems
+                    }));
+                } catch (apiErr) {
+                    console.error("[WORKER] DeepL Fordítási hiba:", apiErr.message);
+                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({
+                        startIndex: task.startIndex,
+                        translatedItems: task.items.map(t => `[DEEPL HIBA]`)
+                    }));
+                }
+            }
+        } catch (err) {}
+        setImmediate(deeplWorkerLoop);
+    }
+
     aiWorkerLoop();
     translateWorkerLoop();
     workerLoop();
+    deeplWorkerLoop();
 }
