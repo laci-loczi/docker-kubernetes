@@ -577,7 +577,7 @@ async function ollamaWorkerLoop() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: "qwen2.5", // FIGYELEM: Modell lecserélve!
+                        model: "aya", 
                         messages: [
                             { 
                                 role: "system", 
