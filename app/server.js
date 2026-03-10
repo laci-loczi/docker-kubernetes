@@ -628,17 +628,17 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                 if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
                         
-                    // 1. Összevont Prompt (A gemini-pro modellhez minden instrukciót egybe kell rakni)
-                    const prompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.\n\nTranslate the following:\n\n" + xmlDocument;
+                    // 1. DEDIKÁLT SYSTEM PROMPT (A gemini-2.5-flash támogatja ezt)
+                    const systemPrompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.";
 
-                    // 2. Hívás a globálisan elérhető GEMINI-PRO modellhez
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+                    // 2. Hívás a HIVATALOSAN LÉTEZŐ ÉS AKTÍV GEMINI-2.5-FLASH modellhez
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            contents: [{ parts: [{ text: xmlDocument }] }],
                             generationConfig: { temperature: 0.1 },
-                            // Biztonsági szűrők kikapcsolása
                             safetySettings: [
                                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -662,7 +662,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                     let translatedXml = responseData.candidates[0].content.parts[0].text;
                     
-                    console.log("\n--- GEMINI-PRO NYERS VÁLASZ ---");
+                    console.log("\n--- GEMINI-2.5-FLASH NYERS VÁLASZ ---");
                     console.log(translatedXml);
                     console.log("-------------------------------\n");
 
