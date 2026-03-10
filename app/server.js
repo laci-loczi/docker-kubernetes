@@ -608,57 +608,107 @@ if (ROLE === 'worker' || ROLE === 'all') {
     }
 
     // --- GEMINI XML WORKER ---
-    async function geminiWorkerLoop() {
-        try {
-            const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
-            if (taskRaw) {
-                const task = JSON.parse(taskRaw[1]); 
-                console.log(`[WORKER] Gemini fordítás indítása (${task.items.length} sor)...`);
-                try {
-                    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-                    let xmlDocument = "";
-                    task.items.forEach((itemText, idx) => {
-                        const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
-                        xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
+   // --- GEMINI 1.5 FLASH API WORKER (GOLYÓÁLLÓ VERZIÓ) ---
+   async function geminiWorkerLoop() {
+    try {
+        const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
+        if (taskRaw) {
+            const task = JSON.parse(taskRaw[1]); 
+            console.log(`[WORKER] Gemini fordítás indítása (${task.items.length} sor)...`);
+            
+            try {
+                const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+                if (!GEMINI_API_KEY) throw new Error("A GEMINI_API_KEY nincs beállítva!");
+
+                let xmlDocument = "";
+                task.items.forEach((itemText, idx) => {
+                    const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
+                    xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
+                });
+
+                let translatedItems = new Array(task.items.length).fill("");
+                
+                if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
+                    
+                    // 1. DEDIKÁLT SYSTEM PROMPT
+                    const systemPrompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.";
+
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                            contents: [{ parts: [{ text: xmlDocument }] }],
+                            generationConfig: { temperature: 0.1 },
+                            // 2. BIZTONSÁGI SZŰRŐK KIKAPCSOLÁSA (Filmek miatt kötelező!)
+                            safetySettings: [
+                                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                            ]
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`HTTP ${response.status} - ${errText}`);
+                    }
+
+                    const responseData = await response.json();
+                    
+                    if (!responseData.candidates || !responseData.candidates[0].content) {
+                        console.error("[WORKER] Gemini Safety Block:", JSON.stringify(responseData));
+                        throw new Error("A Gemini megtagadta a választ (Safety Block).");
+                    }
+
+                    let translatedXml = responseData.candidates[0].content.parts[0].text;
+                    
+                    // DEBUG: Írjuk ki a terminálba, mit adott vissza valójában az AI!
+                    console.log("\n--- GEMINI NYERS VÁLASZ ---");
+                    console.log(translatedXml);
+                    console.log("---------------------------\n");
+
+                    translatedXml = translatedXml.replace(/^```xml/im, '').replace(/```$/im, '').trim();
+
+                    let missingTagsCount = 0;
+
+                    // 3. Visszaparzoljuk az XML-t
+                    task.items.forEach((_, idx) => {
+                        const match = translatedXml.match(new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i'));
+                        if (match && match[1]) {
+                            translatedItems[idx] = match[1].trim();
+                        } else {
+                            translatedItems[idx] = " "; 
+                            missingTagsCount++;
+                        }
                     });
 
-                    let translatedItems = new Array(task.items.length).fill("");
-                    
-                    if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
-                        const prompt = `You are a professional Netflix subtitle translator. Translate the following English text into natural, conversational, and cinematic Hungarian.\nCRITICAL RULES:\n1. The input is wrapped in XML tags (<s0>, <s1>, etc.). You MUST keep the exact same XML tags in your output.\n2. Translate the MEANING and context, do not do literal word-for-word translation. Adapt English slang to Hungarian slang.\n3. Output ONLY the valid XML. Do not add any conversational text or markdown blocks.\n\nInput:\n${xmlDocument}`;
-
-                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                contents: [{ parts: [{ text: prompt }] }],
-                                generationConfig: { temperature: 0.3 } 
-                            })
-                        });
+                    // 4. MENTŐÖV (Fallback): Ha az AI "elfelejtette" az XML-t, és legalább a felénél hiányzik a tag
+                    if (missingTagsCount > task.items.length / 2) {
+                        console.warn("[WORKER] A Gemini ignorálta az XML-t! Próbálkozás nyers sorolvasással...");
+                        const rawLines = translatedXml.replace(/<s\d+>/g, '').replace(/<\/s\d+>/g, '').split('\n').map(l => l.trim()).filter(l => l !== '');
                         
-                        if (response.ok) {
-                            const responseData = await response.json();
-                            let translatedXml = responseData.candidates[0].content.parts[0].text;
-                            translatedXml = translatedXml.replace(/^```xml/im, '').replace(/```$/im, '').trim();
-
-                            task.items.forEach((_, idx) => {
-                                const match = translatedXml.match(new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i'));
-                                translatedItems[idx] = (match && match[1]) ? match[1].trim() : " ";
-                            });
+                        // Ha ugyanannyi sort adott vissza, mint amennyit beletettünk, betöltjük nyersen!
+                        if (rawLines.length === task.items.length) {
+                            translatedItems = rawLines;
+                            console.log("[WORKER] Nyers igazítás sikeres!");
+                        } else {
+                            console.warn(`[WORKER] Sorszám eltérés! Várt: ${task.items.length}, Kapott: ${rawLines.length}`);
                         }
                     }
-                    redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: translatedItems }));
-                } catch (err) {
-                    redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
                 }
+                redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: translatedItems }));
+            } catch (err) {
+                console.error("[WORKER] Gemini Hiba:", err.message);
+                redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
             }
-        } catch (err) {
-            console.error("[WORKER] Gemini Hiba:", err.message);
-            redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
         }
-        setImmediate(geminiWorkerLoop);
-    }
-
+    } catch (err) {}
+    
+    // Google Rate Limit védelem (2 másodperc szünet kérések között)
+    setTimeout(geminiWorkerLoop, 2000);
+}
     aiWorkerLoop();
     translateWorkerLoop(); // A nyílt, publikus lokális fordító
     workerLoop();
