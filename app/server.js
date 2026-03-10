@@ -626,20 +626,19 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
                 });
 
-                let translatedItems = new Array(task.items.length).fill("");
-                
                 if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
-                    
-                    // 1. DEDIKÁLT SYSTEM PROMPT
-                    const systemPrompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.";
+                        
+                    // 1. Összevont Prompt (A gemini-pro modellhez minden instrukciót egybe kell rakni)
+                    const prompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.\n\nTranslate the following:\n\n" + xmlDocument;
 
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {                        method: 'POST',
+                    // 2. Hívás a globálisan elérhető GEMINI-PRO modellhez
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`, {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            systemInstruction: { parts: [{ text: systemPrompt }] },
-                            contents: [{ parts: [{ text: xmlDocument }] }],
+                            contents: [{ parts: [{ text: prompt }] }],
                             generationConfig: { temperature: 0.1 },
-                            // 2. BIZTONSÁGI SZŰRŐK KIKAPCSOLÁSA (Filmek miatt kötelező!)
+                            // Biztonsági szűrők kikapcsolása
                             safetySettings: [
                                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -663,10 +662,9 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                     let translatedXml = responseData.candidates[0].content.parts[0].text;
                     
-                    // DEBUG: Írjuk ki a terminálba, mit adott vissza valójában az AI!
-                    console.log("\n--- GEMINI NYERS VÁLASZ ---");
+                    console.log("\n--- GEMINI-PRO NYERS VÁLASZ ---");
                     console.log(translatedXml);
-                    console.log("---------------------------\n");
+                    console.log("-------------------------------\n");
 
                     translatedXml = translatedXml.replace(/^```xml/im, '').replace(/```$/im, '').trim();
 
@@ -683,12 +681,11 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         }
                     });
 
-                    // 4. MENTŐÖV (Fallback): Ha az AI "elfelejtette" az XML-t, és legalább a felénél hiányzik a tag
+                    // 4. MENTŐÖV (Fallback)
                     if (missingTagsCount > task.items.length / 2) {
                         console.warn("[WORKER] A Gemini ignorálta az XML-t! Próbálkozás nyers sorolvasással...");
                         const rawLines = translatedXml.replace(/<s\d+>/g, '').replace(/<\/s\d+>/g, '').split('\n').map(l => l.trim()).filter(l => l !== '');
                         
-                        // Ha ugyanannyi sort adott vissza, mint amennyit beletettünk, betöltjük nyersen!
                         if (rawLines.length === task.items.length) {
                             translatedItems = rawLines;
                             console.log("[WORKER] Nyers igazítás sikeres!");
