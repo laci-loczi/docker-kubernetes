@@ -17,7 +17,8 @@ const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetrie
 const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisAiWorker is a redis client for interacting with the ai worker redis database
 
 //deepl exper
-const redisDeeplWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // ÚJ DEEPL REDIS
+const redisDeeplWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
+const redisGeminiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
 
 redisMaster.on('error', (err) => console.error('Redis Master error'));
 redisWorker.on('error', (err) => console.error('Redis Worker error'));
@@ -45,6 +46,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     const activeTranslations = {};
     const activeAiTasks = {}; // optimization: track the open ai requests
     const activeDeeplTranslations = {}; // deepl
+    const activeGeminiTranslations = {}; //gemini
 
     app.use(express.json({ limit: '2mb' }));
     app.use(express.static('public'));
@@ -57,8 +59,8 @@ if (ROLE === 'api' || ROLE === 'all') {
     // subscribe to the single redisSub connection for everything!
     redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*');
     redisSub.subscribe('system_stats');
-    //deepl
-    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*');
+    //deepl and gemini
+    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*', 'gemini_sub_result_*');
 
     redisSub.on('pmessage', (pattern, channel, message) => {
         if (pattern === 'job_results_*') {
@@ -221,42 +223,38 @@ if (ROLE === 'api' || ROLE === 'all') {
             }
         });
 
-        //deepl
-        socket.on('translate subtitle deepl', async (data) => {
+        //deepl and gemini
+        const handleVipTranslation = async (prefix, data, activeJobs, socket) => {
             try {
                 if (data.password !== ADMIN_PASSWORD) {
-                    socket.emit('deepl error', 'Hibás admin jelszó! Hozzáférés megtagadva.');
-                    return;
+                    socket.emit(`${prefix} error`, 'Hibás admin jelszó!'); return;
                 }
-
                 const srtParserModule = await import("srt-parser-2");
                 const ParserClass = srtParserModule.default?.default || srtParserModule.default || srtParserModule;
                 const parser = new ParserClass();
-                
                 const srtArray = parser.fromSrt(data.srtText);
+                
                 if (!srtArray || srtArray.length === 0) {
-                    socket.emit('deepl error', 'A fájl üres vagy hibás SRT formátumú.');
-                    return;
+                    socket.emit(`${prefix} error`, 'A fájl üres vagy hibás SRT formátumú.'); return;
                 }
 
-                const jobId = 'deepl_' + crypto.randomUUID();
-                const BATCH_SIZE = 30; 
+                const jobId = `${prefix}_` + crypto.randomUUID();
                 const tasks = [];
-                for (let i = 0; i < srtArray.length; i += BATCH_SIZE) {
-                    tasks.push({ jobId: jobId, startIndex: i, items: srtArray.slice(i, i + BATCH_SIZE).map(c => c.text) });
+                for (let i = 0; i < srtArray.length; i += 30) {
+                    tasks.push({ jobId: jobId, startIndex: i, items: srtArray.slice(i, i + 30).map(c => c.text) });
                 }
 
-                activeDeeplTranslations[jobId] = { total: tasks.length, received: 0, lines: srtArray, socket: socket, parser: parser };
-                socket.emit('deepl progress', { progress: 0, received: 0, total: srtArray.length });
+                activeJobs[jobId] = { total: tasks.length, received: 0, lines: srtArray, socket: socket, parser: parser };
+                socket.emit(`${prefix} progress`, { progress: 0, received: 0, total: srtArray.length });
 
                 const pipeline = redisMaster.pipeline();
-                tasks.forEach(t => { pipeline.lpush('translate_tasks_deepl', JSON.stringify(t)); });
+                tasks.forEach(t => { pipeline.lpush(`translate_tasks_${prefix}`, JSON.stringify(t)); });
                 await pipeline.exec();
+            } catch (err) { socket.emit(`${prefix} error`, 'Hiba: ' + err.message); }
+        };
 
-            } catch (err) {
-                socket.emit('deepl error', 'Hiba a fájl feldolgozásakor: ' + err.message);
-            }
-        });
+        socket.on('translate subtitle deepl', (data) => handleVipTranslation('deepl', data, activeDeeplTranslations, socket));
+        socket.on('translate subtitle gemini', (data) => handleVipTranslation('gemini', data, activeGeminiTranslations, socket));
 
         socket.on('disconnect', () => { delete clients[socket.id]; });
     });
@@ -543,16 +541,14 @@ if (ROLE === 'worker' || ROLE === 'all') {
     }
 
     //deepl not chunking
+    // --- DEEPL XML WORKER ---
     async function deeplWorkerLoop() {
         try {
             const taskRaw = await redisDeeplWorker.brpop('translate_tasks_deepl', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]); 
-                
                 try {
                     const DEEPL_API_KEY = process.env.DEEPL_API_KEY;
-                    if (!DEEPL_API_KEY) throw new Error("A DEEPL_API_KEY nincs beállítva a környezeti változók között!");
-
                     let xmlDocument = "";
                     task.items.forEach((itemText, idx) => {
                         const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
@@ -561,63 +557,84 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                     let translatedItems = new Array(task.items.length).fill("");
                     
-                    if (xmlDocument.trim() !== "") {
+                    if (xmlDocument.trim() !== "" && DEEPL_API_KEY) {
                         const response = await fetch('https://api-free.deepl.com/v2/translate', {
                             method: 'POST',
-                            headers: {
-                                'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
-                                'Content-Type': 'application/json'
-                            },
+                            headers: { 'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`, 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                text: [xmlDocument], 
-                                target_lang: 'HU',
-                                source_lang: 'EN',
-                                formality: 'prefer_less', 
-                                tag_handling: 'xml' 
+                                text: [xmlDocument], target_lang: 'HU', source_lang: 'EN',
+                                formality: 'prefer_less', tag_handling: 'xml'
                             })
                         });
-
-                        if (!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(`DeepL API Hiba: ${response.status} - ${errText}`);
+                        if (response.ok) {
+                            const responseData = await response.json();
+                            const translatedXml = responseData.translations[0].text;
+                            task.items.forEach((_, idx) => {
+                                const match = translatedXml.match(new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i'));
+                                translatedItems[idx] = (match && match[1]) ? match[1].trim() : " ";
+                            });
                         }
-
-                        const responseData = await response.json();
-                        const translatedXml = responseData.translations[0].text;
-
-                        // 3. Visszaparzoljuk az XML-t az eredeti SRT idősávokba
-                        task.items.forEach((_, idx) => {
-                            // Megkeressük a lefordított XML-ben az <sX> és </sX> közötti részt
-                            const regex = new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i');
-                            const match = translatedXml.match(regex);
-                            
-                            if (match && match[1]) {
-                                // A DeepL néha betesz extra szóközöket, ezt letakarítjuk
-                                translatedItems[idx] = match[1].trim();
-                            } else {
-                                translatedItems[idx] = " "; // Ha valamiért üres lenne
-                            }
-                        });
                     }
-
-                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({
-                        startIndex: task.startIndex,
-                        translatedItems: translatedItems
-                    }));
-                } catch (apiErr) {
-                    console.error("[WORKER] DeepL Fordítási hiba:", apiErr.message);
-                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({
-                        startIndex: task.startIndex,
-                        translatedItems: task.items.map(t => `[DEEPL HIBA]`)
-                    }));
+                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: translatedItems }));
+                } catch (err) {
+                    redisMaster.publish(`deepl_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[DEEPL HIBA]`) }));
                 }
             }
         } catch (err) {}
         setImmediate(deeplWorkerLoop);
     }
 
+    // --- GEMINI XML WORKER ---
+    async function geminiWorkerLoop() {
+        try {
+            const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
+            if (taskRaw) {
+                const task = JSON.parse(taskRaw[1]); 
+                try {
+                    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+                    let xmlDocument = "";
+                    task.items.forEach((itemText, idx) => {
+                        const cleanText = itemText ? itemText.replace(/<[^>]*>?/gm, '').trim() : "";
+                        xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
+                    });
+
+                    let translatedItems = new Array(task.items.length).fill("");
+                    
+                    if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
+                        const prompt = `You are a professional Netflix subtitle translator. Translate the following English text into natural, conversational, and cinematic Hungarian.\nCRITICAL RULES:\n1. The input is wrapped in XML tags (<s0>, <s1>, etc.). You MUST keep the exact same XML tags in your output.\n2. Translate the MEANING and context, do not do literal word-for-word translation. Adapt English slang to Hungarian slang.\n3. Output ONLY the valid XML. Do not add any conversational text or markdown blocks.\n\nInput:\n${xmlDocument}`;
+
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: prompt }] }],
+                                generationConfig: { temperature: 0.3 } 
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            const responseData = await response.json();
+                            let translatedXml = responseData.candidates[0].content.parts[0].text;
+                            translatedXml = translatedXml.replace(/^```xml/im, '').replace(/```$/im, '').trim();
+
+                            task.items.forEach((_, idx) => {
+                                const match = translatedXml.match(new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i'));
+                                translatedItems[idx] = (match && match[1]) ? match[1].trim() : " ";
+                            });
+                        }
+                    }
+                    redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: translatedItems }));
+                } catch (err) {
+                    redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
+                }
+            }
+        } catch (err) {}
+        setImmediate(geminiWorkerLoop);
+    }
+
     aiWorkerLoop();
-    translateWorkerLoop();
+    translateWorkerLoop(); // A nyílt, publikus lokális fordító
     workerLoop();
-    deeplWorkerLoop();
+    deeplWorkerLoop();     // VIP DeepL
+    geminiWorkerLoop();
 }

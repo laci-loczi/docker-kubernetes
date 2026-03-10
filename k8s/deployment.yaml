@@ -117,6 +117,11 @@ spec:
               secretKeyRef:
                 name: app-secrets
                 key: DEEPL_API_KEY  
+          - name: GEMINI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: app-secrets
+                key: GEMINI_API_KEY     
         resources:
           requests:
             cpu: "200m"     
