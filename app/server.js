@@ -607,9 +607,8 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(deeplWorkerLoop);
     }
 
-    // --- GEMINI XML WORKER ---
-   // --- GEMINI 1.5 FLASH API WORKER (GOLYÓÁLLÓ VERZIÓ) ---
-   async function geminiWorkerLoop() {
+ // --- GEMINI 2.5 FLASH API WORKER (VÉGLEGES, TÖKÉLETES VERZIÓ) ---
+ async function geminiWorkerLoop() {
     try {
         const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
         if (taskRaw) {
@@ -626,12 +625,13 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
                 });
 
+                // ---> EZ A SOR HIÁNYZOTT! Ide mentjük a kész szöveget <---
+                let translatedItems = new Array(task.items.length).fill("");
+                
                 if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {
-                        
-                    // 1. DEDIKÁLT SYSTEM PROMPT (A gemini-2.5-flash támogatja ezt)
+                    
                     const systemPrompt = "You are a professional Netflix subtitle translator translating English to Hungarian. CRITICAL RULE: The user will give you an XML structure (<s0> text </s0>). You MUST return the EXACT SAME XML tags wrapping the Hungarian translation. Never omit the tags.";
 
-                    // 2. Hívás a HIVATALOSAN LÉTEZŐ ÉS AKTÍV GEMINI-2.5-FLASH modellhez
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -656,7 +656,6 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     const responseData = await response.json();
                     
                     if (!responseData.candidates || !responseData.candidates[0].content) {
-                        console.error("[WORKER] Gemini Safety Block:", JSON.stringify(responseData));
                         throw new Error("A Gemini megtagadta a választ (Safety Block).");
                     }
 
@@ -670,7 +669,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
 
                     let missingTagsCount = 0;
 
-                    // 3. Visszaparzoljuk az XML-t
+                    // Visszaparzoljuk az XML-t a helyére
                     task.items.forEach((_, idx) => {
                         const match = translatedXml.match(new RegExp(`<s${idx}>([\\s\\S]*?)</s${idx}>`, 'i'));
                         if (match && match[1]) {
@@ -681,7 +680,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         }
                     });
 
-                    // 4. MENTŐÖV (Fallback)
+                    // Mentőöv (Fallback), ha elrontaná az XML-t
                     if (missingTagsCount > task.items.length / 2) {
                         console.warn("[WORKER] A Gemini ignorálta az XML-t! Próbálkozás nyers sorolvasással...");
                         const rawLines = translatedXml.replace(/<s\d+>/g, '').replace(/<\/s\d+>/g, '').split('\n').map(l => l.trim()).filter(l => l !== '');
@@ -689,11 +688,11 @@ if (ROLE === 'worker' || ROLE === 'all') {
                         if (rawLines.length === task.items.length) {
                             translatedItems = rawLines;
                             console.log("[WORKER] Nyers igazítás sikeres!");
-                        } else {
-                            console.warn(`[WORKER] Sorszám eltérés! Várt: ${task.items.length}, Kapott: ${rawLines.length}`);
                         }
                     }
                 }
+                
+                // Kész, visszaküldjük a Redis-nek!
                 redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: translatedItems }));
             } catch (err) {
                 console.error("[WORKER] Gemini Hiba:", err.message);
@@ -702,7 +701,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
         }
     } catch (err) {}
     
-    // Google Rate Limit védelem (2 másodperc szünet kérések között)
+    // 2 másodperc szünet Google Rate Limit ellen
     setTimeout(geminiWorkerLoop, 2000);
 }
     aiWorkerLoop();
