@@ -119,6 +119,29 @@ if (ROLE === 'api' || ROLE === 'all') {
                 delete activeDeeplTranslations[jobId];
             }
         }
+        else if (pattern === 'gemini_sub_result_*') {
+            const data = JSON.parse(message);
+            const jobId = channel.replace('gemini_sub_result_', '');
+            const job = activeGeminiTranslations[jobId];
+            if (!job) return; 
+
+            data.translatedItems.forEach((transText, i) => {
+                if (job.lines[data.startIndex + i]) job.lines[data.startIndex + i].text = transText;
+            });
+            job.received++; 
+
+            const currentLinesDone = Math.min(job.received * 30, job.lines.length);
+            const progress = Math.round((job.received / job.total) * 100);
+            job.socket.emit('gemini progress', { progress, received: currentLinesDone, total: job.lines.length });
+
+            if (job.received === job.total) {
+                try {
+                    const translatedSrt = job.parser.toSrt(job.lines);
+                    job.socket.emit('gemini done', { srt: translatedSrt });
+                } catch (e) { console.error("[API] Gemini SRT hiba:", e); }
+                delete activeGeminiTranslations[jobId];
+            }
+        }
         else if (pattern === 'ai_result_*') {
             const taskId = channel.replace('ai_result_', '');
             if (activeAiTasks[taskId]) {
@@ -590,6 +613,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
             const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
             if (taskRaw) {
                 const task = JSON.parse(taskRaw[1]); 
+                console.log(`[WORKER] Gemini fordítás indítása (${task.items.length} sor)...`);
                 try {
                     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
                     let xmlDocument = "";
@@ -628,7 +652,10 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
                 }
             }
-        } catch (err) {}
+        } catch (err) {
+            console.error("[WORKER] Gemini Hiba:", err.message);
+            redisMaster.publish(`gemini_sub_result_${task.jobId}`, JSON.stringify({ startIndex: task.startIndex, translatedItems: task.items.map(t => `[GEMINI HIBA]`) }));
+        }
         setImmediate(geminiWorkerLoop);
     }
 
