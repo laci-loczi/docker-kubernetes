@@ -406,10 +406,26 @@
             margin-top: 40px;
         }
         
+        .grafana-row{
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            margin-top: 40px;
+        }
         .grafana-row iframe{
             flex: 1;
             height: 420px;
             border-radius: 10px;
             border: 1px solid var(--border-color);
             background: #111;
+        }
+        .grafana-small{
+            margin-top: 10px;
+            margin-bottom: 10px;
+            max-width: 520px;
+            justify-content: flex-start;
+        }
+        
+        .grafana-small iframe{
+            height: 160px;
         }
