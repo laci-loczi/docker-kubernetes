@@ -27,13 +27,9 @@
             <button class="btn-tech" onclick="toggleTechModal(true)">
                 <i class="fas fa-tools"></i> Built With...
             </button>
-            <button onclick="setMode('normal')">
-                <i class="fas fa-chart-line"></i> Real Usage
-            </button>
-            <button class="active-stress" onclick="setMode('stress')">
-                <i class="fas fa-fire"></i> Stress Test
-            </button>
-        </div>
+            <a href="personal.html">
+                <button>Personal fast translator</button>
+              </a>
     </header>
 
     <main class="dashboard-grid">
@@ -41,7 +37,10 @@
             <div class="card-header">
                 <div>
                     <div class="card-title">CPU Load</div>
-                    <div class="metric-value" id="cpuValue" style="color: var(--accent-cpu)">0<span class="unit">%</span></div>
+                    <div style="display: flex; gap: 15px;">
+                        <div class="metric-value" id="cpuWorkerValue" style="color: #ef4444; font-size: 1.5rem;">0<span class="unit">%</span> <span style="font-size: 0.8rem; color: var(--text-muted)">WORKER</span></div>
+                        <div class="metric-value" id="cpuApiValue" style="color: #3b82f6; font-size: 1.5rem;">0<span class="unit">%</span> <span style="font-size: 0.8rem; color: var(--text-muted)">API</span></div>
+                    </div>
                 </div>
                 <i class="fas fa-server" style="color: var(--border-color); font-size: 1.5rem;"></i>
             </div>
@@ -144,8 +143,20 @@
             </div>
             <canvas id="hiddenCanvas" style="display: none;"></canvas>
         </div>
-    </section>
 
+        <div class="grafana-row">
+
+            <iframe 
+                src="http://localhost:8090/d-solo/adjpt8w/backend-worker-dashboard?orgId=1&panelId=1"
+                frameborder="0">
+            </iframe>
+        
+            <iframe 
+                src="http://localhost:8090/d-solo/adxrtnd/new-dashboard?orgId=1&panelId=1"
+                frameborder="0">
+            </iframe>
+        
+        </div>
     <section style="margin-top: 40px; margin-bottom: 40px; width: 100%;">
         <div class="card" style="background: var(--card-bg); border-color: var(--border-color);">
             <div class="card-header" style="margin-bottom: 15px;">
@@ -163,21 +174,6 @@
                     <i class="fas fa-magic"></i> Translate to Hungarian
                 </button>
                 <div id="subStatus" style="color: var(--text-muted); font-size: 0.9rem; font-family: monospace;">Waiting for .srt file...</div>
-            </div>
-            <div class="control-panel" style="border: 2px solid #3b82f6; background: rgba(59, 130, 246, 0.05); margin-top: 20px;">
-                <h3 style="color: #3b82f6;"><i class="fas fa-bolt"></i> DeepL </h3>
-                <input type="password" id="deeplPassword" placeholder="Admin Jelszó" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-dark); color: white;">
-                <input type="file" id="deeplSrtInput" accept=".srt" class="file-input">
-                <button id="deeplTranslateBtn" class="btn-primary" style="margin-top: 10px; width: 100%; background: #3b82f6; color: white;">DeepL Fordítás Indítása</button>
-                <div id="deeplSubStatus" class="status-text" style="margin-top: 10px;">Várakozás...</div>
-            </div>
-
-            <div class="control-panel" style="border: 2px solid #10b981; background: rgba(16, 185, 129, 0.05); margin-top: 20px;">
-                <h3 style="color: #10b981;"><i class="fas fa-magic"></i> Gemini</h3>
-                <input type="password" id="geminiPassword" placeholder="Admin Jelszó" style="width: 100%; padding: 8px; margin-bottom: 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-dark); color: white;">
-                <input type="file" id="geminiSrtInput" accept=".srt" class="file-input">
-                <button id="geminiTranslateBtn" class="btn-primary" style="margin-top: 10px; width: 100%; background: #10b981; color: white;">Gemini Fordítás Indítása</button>
-                <div id="geminiSubStatus" class="status-text" style="margin-top: 10px;">Várakozás...</div>
             </div>
         </div>
     </section>

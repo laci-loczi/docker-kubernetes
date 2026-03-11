@@ -607,7 +607,7 @@ if (ROLE === 'worker' || ROLE === 'all') {
         setImmediate(deeplWorkerLoop);
     }
 
- // --- GEMINI 2.5 FLASH API WORKER (VÉGLEGES, TÖKÉLETES VERZIÓ) ---
+ //
  async function geminiWorkerLoop() {
     try {
         const taskRaw = await redisGeminiWorker.brpop('translate_tasks_gemini', 1);
@@ -625,7 +625,6 @@ if (ROLE === 'worker' || ROLE === 'all') {
                     xmlDocument += `<s${idx}>${cleanText}</s${idx}>\n`;
                 });
 
-                // ---> EZ A SOR HIÁNYZOTT! Ide mentjük a kész szöveget <---
                 let translatedItems = new Array(task.items.length).fill("");
                 
                 if (xmlDocument.trim() !== "" && GEMINI_API_KEY) {

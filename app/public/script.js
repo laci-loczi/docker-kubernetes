@@ -24,15 +24,30 @@ const commonOptions = {
 };
 
 const cpuCtx = document.getElementById('cpuChart').getContext('2d'); 
-const cpuGradient = cpuCtx.createLinearGradient(0, 0, 0, 400); 
-cpuGradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)'); 
-cpuGradient.addColorStop(1, 'rgba(239, 68, 68, 0)'); 
+
+// Munkás (Worker) színátmenet (Piros)
+const cpuGradientWorker = cpuCtx.createLinearGradient(0, 0, 0, 400); 
+cpuGradientWorker.addColorStop(0, 'rgba(239, 68, 68, 0.2)'); 
+cpuGradientWorker.addColorStop(1, 'rgba(239, 68, 68, 0)'); 
+
+// API színátmenet (Kék)
+const cpuGradientApi = cpuCtx.createLinearGradient(0, 0, 0, 400); 
+cpuGradientApi.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); 
+cpuGradientApi.addColorStop(1, 'rgba(59, 130, 246, 0)'); 
+
 const cpuChart = new Chart(cpuCtx, {
     type: 'line',
-    data: { labels: Array(30).fill(''), datasets: [{ data: Array(30).fill(0), borderColor: '#ef4444', backgroundColor: cpuGradient, borderWidth: 2, fill: true, tension: 0.4 }] },
+    data: { 
+        labels: Array(30).fill(''), 
+        datasets: [
+            { label: 'Worker CPU', data: Array(30).fill(0), borderColor: '#ef4444', backgroundColor: cpuGradientWorker, borderWidth: 2, fill: true, tension: 0.4 },
+            { label: 'API CPU', data: Array(30).fill(0), borderColor: '#3b82f6', backgroundColor: cpuGradientApi, borderWidth: 2, fill: true, tension: 0.4 }
+        ] 
+    },
     options: commonOptions
 });
 
+// A Memória grafikon marad az eredeti (Kék)
 const memCtx = document.getElementById('memChart').getContext('2d'); 
 const memGradient = memCtx.createLinearGradient(0, 0, 0, 400); 
 memGradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)'); 
@@ -97,38 +112,52 @@ setInterval(() => {
     if (!isSystemOnline || Object.keys(clusterStats).length === 0) return;
 
     const now = Date.now();
-    let totalCpu = 0;
-    let totalMemUsed = 0;
-    let vmTotalMem = 0;
-    let podCount = 0;
+    
+    let totalWorkerCpu = 0, workerCount = 0;
+    let totalApiCpu = 0, apiCount = 0;
+    let totalMemUsed = 0, vmTotalMem = 0, podCount = 0;
 
     for (const [hostname, stats] of Object.entries(clusterStats)) {
-        // if a pod hasn't sent data for more than 3 seconds (e.g. crashed / stopped), remove it
         if (now - stats.lastSeen > 3000) {
             delete clusterStats[hostname];
             continue;
         }
         
-        // add the numbers (max 100% cpu per pod for the chart)
-        totalCpu += Math.min(stats.cpu, 100); 
+        // Okos szétválogatás a pod neve (hostname) alapján!
+        if (hostname.includes('worker')) {
+            totalWorkerCpu += Math.min(stats.cpu, 100); 
+            workerCount++;
+        } else {
+            totalApiCpu += Math.min(stats.cpu, 100); 
+            apiCount++;
+        }
+
         totalMemUsed += stats.memUsed;
-        vmTotalMem = stats.memTotal; // the maximum memory of the virtual machine is the same for all pods
+        vmTotalMem = stats.memTotal; 
         podCount++;
     }
 
     if (podCount > 0) {
-        // average cpu load between the active pods
-        const avgCpu = (totalCpu / podCount).toFixed(1);
+        // Átlagoljuk a CPU-t csoportonként
+        const avgWorkerCpu = workerCount > 0 ? (totalWorkerCpu / workerCount).toFixed(1) : "0.0";
+        const avgApiCpu = apiCount > 0 ? (totalApiCpu / apiCount).toFixed(1) : "0.0";
         
-        // aggregated memory percentage (max 100%)
         const clusterMemPercent = Math.min((totalMemUsed / vmTotalMem) * 100, 100).toFixed(1);
         
-        const usedMB = formatBytesToMB(totalMemUsed);
-        const maxMB = formatBytesToMB(vmTotalMem);
+        document.getElementById('memAbs').textContent = `${formatBytesToMB(totalMemUsed)} / ${formatBytesToMB(vmTotalMem)} MB (${podCount} Pod aktív)`;
         
-        document.getElementById('memAbs').textContent = `${usedMB} / ${maxMB} MB (${podCount} Pod aktív)`;
-        
-        updateChart(cpuChart, avgCpu, 'cpuValue'); 
+        // 1. Frissítjük a számokat a HTML-ben
+        document.getElementById('cpuWorkerValue').innerHTML = `${avgWorkerCpu}<span class="unit">%</span> <span style="font-size: 0.8rem; color: var(--text-muted)">WORKER</span>`;
+        document.getElementById('cpuApiValue').innerHTML = `${avgApiCpu}<span class="unit">%</span> <span style="font-size: 0.8rem; color: var(--text-muted)">API</span>`;
+
+        // 2. Toljuk a grafikon vonalait (Worker = piros = datasets[0], API = kék = datasets[1])
+        cpuChart.data.datasets[0].data.shift();
+        cpuChart.data.datasets[0].data.push(avgWorkerCpu);
+        cpuChart.data.datasets[1].data.shift();
+        cpuChart.data.datasets[1].data.push(avgApiCpu);
+        cpuChart.update();
+
+        // 3. Frissítjük a Memóriát
         updateChart(memChart, clusterMemPercent, 'memValue'); 
     }
 }, 1000);
