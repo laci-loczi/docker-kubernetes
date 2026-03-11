@@ -279,6 +279,11 @@ async function startDistributedRender() {
                     aiStatus.textContent = "Kérése elküldve a K8s Workernek...";
                     aiList.innerHTML = '<li style="color: #ef4444;"><i class="fas fa-cloud-upload-alt"></i> Kép küldése az AI node-nak...</li>';
                     
+                    document.getElementById('aiMemoryLabel').innerHTML = '<i class="fas fa-server"></i> Processing Node';
+                    document.getElementById('aiMemoryValue').textContent = 'Kijelölés alatt...';
+                    document.getElementById('aiMemoryValue').style.color = 'var(--text-muted)';
+                    document.getElementById('aiMemory').classList.add('ai-memory-active');
+
                     const aiCanvas = document.createElement('canvas');
                     const maxDim = 640;
                     scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
@@ -302,6 +307,10 @@ async function startDistributedRender() {
                         predictions = aiResponse.predictions;
                         const aiWorkerName = aiResponse.podName || "K8s AI Worker";
                         const aiWorkerColor = aiResponse.podColor || "#10b981";
+
+                        document.getElementById('aiMemoryValue').textContent = aiWorkerName;
+                        document.getElementById('aiMemoryValue').style.color = aiWorkerColor;
+                        document.getElementById('aiMemory').classList.remove('ai-memory-active');
 
                         aiStatus.textContent = `${predictions.length} objektum találva`;
                         aiList.innerHTML = '';
