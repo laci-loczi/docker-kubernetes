@@ -83,9 +83,9 @@
                 <div style="display: flex; gap: 10px; align-items: center;">
                     <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Task:</span>
                     <select id="taskMode" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
-                        <option value="both">ASCII + AI (K8s + detr-resnet-50)</option>
-                        <option value="ascii">ASCII Only (K8s)</option>
-                        <option value="ai">AI (detr-resnet-50)</option>
+                        <option value="ascii">ASCII</option>
+                        <option value="ai">AI analyzing</option>
+                        <option value="both">ASCII and AI analyzing</option>
                     </select>
                 </div>
 
@@ -147,15 +147,27 @@
         <div class="grafana-row">
 
             <iframe 
-                src="http://localhost:8090/d-solo/adjpt8w/backend-worker-dashboard?orgId=1&panelId=1&from=now-5m&to=now&theme=dark&refresh=5s&kiosk"
+                src="http://localhost:8090/d-solo/adjpt8w/backend-worker-dashboard?orgId=1&panelId=1&from=now-30m&to=now&theme=dark&refresh=5s&kiosk"
                 frameborder="0">
             </iframe>
         
             <iframe 
-                src="http://localhost:8090/d-solo/adxrtnd/new-dashboard?orgId=1&panelId=1&from=now-5m&to=now&theme=dark&refresh=5s&kiosk"
+                src="http://localhost:8090/d-solo/adxrtnd/new-dashboard?orgId=1&panelId=1&from=now-30m&to=now&theme=dark&refresh=5s&kiosk"
+                frameborder="0">
+            </iframe>    
+        </div>
+
+        <div class="grafana-row">
+
+            <iframe 
+                src="http://localhost:8090/d-solo/ad6p5nt/backend-worker-memory?orgId=1&panelId=1&from=now-30m&to=now&theme=dark&refresh=5s&kiosk"
                 frameborder="0">
             </iframe>
         
+            <iframe 
+                src="http://localhost:8090/d-solo/ad2ndgx/api-memory?orgId=1&panelId=1&from=now-30m&to=now&theme=dark&refresh=5s&kiosk"
+                frameborder="0">
+            </iframe>   
         </div>
     <section style="margin-top: 40px; margin-bottom: 40px; width: 100%;">
         <div class="card" style="background: var(--card-bg); border-color: var(--border-color);">
