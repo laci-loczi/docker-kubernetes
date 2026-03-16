@@ -27,7 +27,6 @@ pipeline {
                 // tagging build number for rollback
                 sh "./docker build -t ${IMAGE_TAG} -t ${IMAGE_LATEST} ./app"
 
-                sh "./docker build -t guitar-ai-worker:${BUILD_NUMBER} -t guitar-ai-worker:latest ./gutiarchord"
             }
         }
         stage('Deploy to K8s') {
@@ -39,7 +38,6 @@ pipeline {
                 sh './kubectl rollout restart deployment backend-worker-deployment || true'
                 sh './kubectl rollout restart deployment nginx-deployment || true'
 
-                sh './kubectl rollout restart deployment guitar-worker-deployment || true'
             }
         }
     }

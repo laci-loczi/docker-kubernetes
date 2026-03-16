@@ -59,7 +59,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     // subscribe to the single redisSub connection for everything!
     redisSub.subscribe('system_stats');
     //deepl and gemini
-    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*', 'gemini_sub_result_*', 'guitar_result_*');
+    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*', 'gemini_sub_result_*');
 
     redisSub.on('pmessage', (pattern, channel, message) => {
         if (pattern === 'job_results_*') {
@@ -146,14 +146,6 @@ if (ROLE === 'api' || ROLE === 'all') {
             if (activeAiTasks[taskId]) {
                 activeAiTasks[taskId](JSON.parse(message)); // execute the callback
                 delete activeAiTasks[taskId]; // free memory
-            }
-        }
-
-        else if (pattern === 'guitar_result_*') {
-            const taskId = channel.replace('guitar_result_', '');
-            if (activeAiTasks[taskId]) {
-                activeAiTasks[taskId](JSON.parse(message));
-                delete activeAiTasks[taskId];
             }
         }
     });
@@ -287,17 +279,6 @@ if (ROLE === 'api' || ROLE === 'all') {
         socket.on('translate subtitle gemini', (data) => handleVipTranslation('gemini', data, activeGeminiTranslations, socket));
 
         socket.on('disconnect', () => { delete clients[socket.id]; });
-    });
-
-    socket.on('analyze guitar', async (data, callback) => {
-        const taskId = 'guitar_' + crypto.randomUUID();
-        activeAiTasks[taskId] = callback; 
-        
-        // Betoljuk a nyers hangfájlt a Python worker sorába
-        await redisMaster.lpush('guitar_tasks', JSON.stringify({
-            taskId: taskId, 
-            audioBase64: data.audio
-        }));
     });
 
     server.listen(PORT, () => console.log(`[API] Server running on ${PORT}`));
