@@ -172,7 +172,7 @@ spec:
   # behavior rules (don't scale up unnecessarily)
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 45 # wait 45 seconds after the spike before scaling
+      stabilizationWindowSeconds: 20 # wait 45 seconds after the spike before scaling
       policies:
       - type: Pods
         value: 2

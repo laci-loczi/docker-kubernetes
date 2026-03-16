@@ -412,9 +412,7 @@
             width: 100%;
             margin-top: 40px;
         }
-        .grafana-row iframe{
-            flex: 1;
-            height: 420px;
+        .grafana-row iframe {
             border-radius: 10px;
             border: 1px solid var(--border-color);
             background: #111;
@@ -428,4 +426,84 @@
         
         .grafana-small iframe{
             height: 160px;
+        }
+        .telemetry-toggle {
+            width: 100%;
+            background: rgba(30, 41, 59, 0.7); /* Sötétkék panel háttér */
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-mem); /* Erős kék él a bal oldalon */
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 14px 20px; /* Vastagabb, jobban kattintható terület */
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            outline: none;
+            margin-bottom: 10px;
+        }
+        
+        /* Hover (amikor ráviszed az egeret) és Active (nyitott) állapot */
+        .telemetry-toggle:hover, 
+        .telemetry-toggle.active {
+            background: rgba(30, 41, 59, 0.95);
+            border-color: rgba(59, 130, 246, 0.4);
+            color: var(--text-main);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.15); /* Finom kék ragyogás */
+        }
+        
+        .telemetry-label {
+            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        
+        .telemetry-icon {
+            font-size: 1.1rem;
+            color: var(--accent-mem);
+        }
+        
+        /* Egy futurisztikus, világító vonal középen */
+        .telemetry-line {
+            flex-grow: 1;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
+        }
+        
+        .telemetry-status-text {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: #10b981; /* Zöld "LIVE" felirat */
+            background: rgba(16, 185, 129, 0.1);
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        /* A nyíl animációja CSS-ből vezérelve */
+        .telemetry-chevron {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .telemetry-toggle.active .telemetry-chevron {
+            transform: rotate(180deg);
+        }
+        
+        /* A CSS Grid trükk a tökéletes, JavaScript nélküli magasság-animációhoz */
+        .telemetry-content {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .telemetry-content.open {
+            grid-template-rows: 1fr;
+        }
+        
+        .telemetry-inner {
+            overflow: hidden;
+            min-height: 0;
         }

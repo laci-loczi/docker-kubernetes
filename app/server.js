@@ -15,6 +15,7 @@ const redisWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerReque
 const redisSub = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisSub is a redis client for interacting with the subscriber redis database
 const redisTranslateWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisTranslateWorker is a redis client for interacting with the translate worker redis database
 const redisAiWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); // redisAiWorker is a redis client for interacting with the ai worker redis database
+const redisMeetingWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null });
 
 //deepl exper
 const redisDeeplWorker = new Redis({ host: REDIS_HOST, port: 6379, maxRetriesPerRequest: null }); 
@@ -47,6 +48,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     const activeAiTasks = {}; // optimization: track the open ai requests
     const activeDeeplTranslations = {}; // deepl
     const activeGeminiTranslations = {}; //gemini
+    const activeMeetingJobs = {};
 
     app.use(express.json({ limit: '2mb' }));
     app.use(express.static('public'));
@@ -57,7 +59,7 @@ if (ROLE === 'api' || ROLE === 'all') {
     app.get('/', (req, res) => res.sendFile(__dirname + '/public/index.html'));
 
     // subscribe to the single redisSub connection for everything!
-    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*');
+    redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'meeting_result_*', 'meeting_progress_*');
     redisSub.subscribe('system_stats');
     //deepl and gemini
     redisSub.psubscribe('job_results_*', 'sub_result_*', 'ai_result_*', 'deepl_sub_result_*', 'gemini_sub_result_*');
@@ -148,6 +150,33 @@ if (ROLE === 'api' || ROLE === 'all') {
                 activeAiTasks[taskId](JSON.parse(message)); // execute the callback
                 delete activeAiTasks[taskId]; // free memory
             }
+        }
+
+        else if (pattern === 'meeting_progress_*') {
+            const jobId = channel.replace('meeting_progress_', '');
+            const job = activeMeetingJobs[jobId];
+            if (job) job.socket.emit('meeting progress', JSON.parse(message));
+        }
+        else if (pattern === 'meeting_result_*') {
+            const jobId = channel.replace('meeting_result_', '');
+            const job = activeMeetingJobs[jobId];
+            if (!job) return;
+     
+            const data = JSON.parse(message);
+     
+            // Forward transcript first so UI can show it fast
+            if (data.transcript) {
+                const words = data.transcript.split(/\s+/).filter(Boolean).length;
+                job.socket.emit('meeting transcript', {
+                    text: data.transcript,
+                    wordCount: words,
+                    duration: data.duration ?? null
+                });
+            }
+     
+            // Then send the full structured result
+            job.socket.emit('meeting result', data);
+            delete activeMeetingJobs[jobId];
         }
     });
 
@@ -243,6 +272,30 @@ if (ROLE === 'api' || ROLE === 'all') {
 
             } catch (err) {
                 socket.emit('subtitle error', 'Hiba a fájl feldolgozásakor: ' + err.message);
+            }
+        });
+
+
+        socket.on('analyze meeting', async (data) => {
+            try {
+                const jobId = 'meet_' + crypto.randomUUID();
+     
+                activeMeetingJobs[jobId] = { socket };
+     
+                // Emit initial ack so UI shows progress immediately
+                socket.emit('meeting progress', { stage: 'Queued in Redis...', pct: 2, detail: '' });
+     
+                await redisMaster.lpush('meeting_tasks', JSON.stringify({
+                    jobId,
+                    audioBase64: data.audioBase64,
+                    mimeType:    data.mimeType   ?? 'audio/webm',
+                    fileName:    data.fileName   ?? 'audio.webm',
+                    audioLang:   data.audioLang  ?? 'en',
+                    summaryLang: data.summaryLang ?? 'en',
+                    options:     data.options    ?? {}
+                }));
+            } catch (err) {
+                socket.emit('meeting error', 'Failed to queue task: ' + err.message);
             }
         });
 
@@ -703,6 +756,208 @@ if (ROLE === 'worker' || ROLE === 'all') {
     // 2 másodperc szünet Google Rate Limit ellen
     setTimeout(geminiWorkerLoop, 2000);
 }
+
+async function meetingWorkerLoop() {
+    try {
+        // Use a 5-second timeout so the worker isn't permanently blocked if
+        // the queue is empty — same pattern as your other worker loops.
+        const taskRaw = await redisMeetingWorker.brpop('meeting_tasks', 5);
+ 
+        if (taskRaw) {
+            const task = JSON.parse(taskRaw[1]);
+            const { jobId, audioBase64, mimeType, audioLang, summaryLang, options } = task;
+ 
+            const pub = (stage, pct, detail = '') =>
+                redisMaster.publish(`meeting_progress_${jobId}`, JSON.stringify({ stage, pct, detail }));
+ 
+            try {
+                // ── Step 1: Decode audio ─────────────────────────────────────
+                await pub('Decoding audio...', 8);
+                const audioBuffer = Buffer.from(audioBase64, 'base64');
+ 
+                // ── Step 2: Whisper transcription ─────────────────────────────
+                await pub('Transcribing with Whisper...', 15, 'Loading model (cached after first run)');
+ 
+                const { pipeline, env } = await import('@huggingface/transformers');
+                env.allowLocalModels = false;
+ 
+                // Lazy-load Whisper (reuse across calls via module-level cache)
+                if (!global._whisperPipeline) {
+                    console.log('[WORKER-MEETING] Loading Whisper model...');
+                    // whisper-base is a good balance: ~145 MB, runs on CPU in ~2-4x realtime
+                    global._whisperPipeline = await pipeline(
+                        'automatic-speech-recognition',
+                        'Xenova/whisper-base',
+                        { chunk_length_s: 30, stride_length_s: 5 }
+                    );
+                    console.log('[WORKER-MEETING] Whisper ready.');
+                }
+ 
+                await pub('Transcribing...', 25, 'Sending audio to Whisper');
+ 
+                // Build a Blob from the buffer for HuggingFace transformers
+                const { Blob } = require('buffer');
+                const audioBlob = new Blob([audioBuffer], { type: mimeType });
+ 
+                const whisperOutput = await global._whisperPipeline(audioBlob, {
+                    language: audioLang === 'auto' ? null : audioLang,
+                    return_timestamps: true,
+                    chunk_length_s: 30,
+                    stride_length_s: 5,
+                });
+ 
+                const transcript = whisperOutput.text?.trim() ?? '';
+ 
+                // Estimate duration from the last timestamp chunk
+                let duration = null;
+                const chunks = whisperOutput.chunks;
+                if (chunks && chunks.length > 0) {
+                    const lastEnd = chunks[chunks.length - 1].timestamp?.[1];
+                    if (lastEnd) {
+                        const m = Math.floor(lastEnd / 60);
+                        const s = Math.floor(lastEnd % 60);
+                        duration = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                    }
+                }
+ 
+                await pub('Transcript ready — extracting insights...', 65, `${transcript.split(/\s+/).length} words transcribed`);
+ 
+                // ── Step 3: Gemini structured extraction ─────────────────────
+                const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+                if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
+ 
+                const wantActions   = options.actions   !== false;
+                const wantDecisions = options.decisions  !== false;
+                const wantQuestions = options.questions  !== false;
+                const wantConf      = options.confidence !== false;
+ 
+                const extractionPrompt = `
+You are an expert meeting analyst. Analyze the following meeting transcript and return a JSON object.
+ 
+CRITICAL: Return ONLY valid JSON, no markdown fences, no explanation.
+ 
+JSON schema (all fields required):
+{
+  "summary": "2-4 sentence executive summary of the meeting",
+  "actions": [
+    { "text": "action item description", "confidence": 0.95 }
+  ],
+  "decisions": [
+    { "text": "decision that was made", "confidence": 0.90 }
+  ],
+  "questions": [
+    { "text": "open question or blocker that was raised", "confidence": 0.85 }
+  ]
+}
+ 
+Rules:
+- summary: in ${summaryLang === 'hu' ? 'Hungarian' : summaryLang === 'de' ? 'German' : 'English'}
+- actions: concrete tasks someone agreed to do. Max 10. Empty array if none.
+- decisions: things the group concluded or agreed on. Max 10. Empty array if none.
+- questions: things left unresolved or explicitly asked but not answered. Max 8.
+- confidence: float 0.0-1.0 reflecting how certain you are this item is genuine
+- If the transcript is empty or unintelligible, return empty arrays and an appropriate summary.
+ 
+TRANSCRIPT:
+"""
+${transcript.substring(0, 12000)}
+"""
+`.trim();
+ 
+                await pub('Extracting insights with Gemini...', 75);
+ 
+                const geminiRes = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: extractionPrompt }] }],
+                            generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+                            safetySettings: [
+                                { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
+                                { category: 'HARM_CATEGORY_HATE_SPEECH',        threshold: 'BLOCK_NONE' },
+                                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',  threshold: 'BLOCK_NONE' },
+                                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT',  threshold: 'BLOCK_NONE' },
+                            ]
+                        })
+                    }
+                );
+ 
+                if (!geminiRes.ok) {
+                    const errText = await geminiRes.text();
+                    throw new Error(`Gemini HTTP ${geminiRes.status}: ${errText}`);
+                }
+ 
+                const geminiData = await geminiRes.json();
+ 
+                if (!geminiData.candidates?.[0]?.content) {
+                    throw new Error('Gemini returned no content (safety block?)');
+                }
+ 
+                let rawJson = geminiData.candidates[0].content.parts[0].text;
+ 
+                // Strip markdown fences if Gemini ignored the instruction
+                rawJson = rawJson.replace(/^```json\s*/im, '').replace(/```\s*$/im, '').trim();
+ 
+                let extracted;
+                try {
+                    extracted = JSON.parse(rawJson);
+                } catch (parseErr) {
+                    // Fallback: return transcript with empty extraction rather than hard-fail
+                    console.error('[WORKER-MEETING] Gemini JSON parse error:', parseErr.message, '\nRaw:', rawJson.substring(0, 300));
+                    extracted = { summary: 'Extraction failed — see raw transcript.', actions: [], decisions: [], questions: [] };
+                }
+ 
+                // Strip confidence fields if the user didn't want them
+                if (!wantConf) {
+                    ['actions','decisions','questions'].forEach(key => {
+                        if (Array.isArray(extracted[key])) {
+                            extracted[key] = extracted[key].map(item =>
+                                typeof item === 'object' ? item.text : item
+                            );
+                        }
+                    });
+                }
+ 
+                await pub('Done!', 100);
+ 
+                // ── Step 4: Publish result ───────────────────────────────────
+                redisMaster.publish(`meeting_result_${jobId}`, JSON.stringify({
+                    transcript,
+                    duration,
+                    summary:   extracted.summary   ?? '',
+                    actions:   wantActions   ? (extracted.actions   ?? []) : [],
+                    decisions: wantDecisions ? (extracted.decisions ?? []) : [],
+                    questions: wantQuestions ? (extracted.questions ?? []) : [],
+                    podName:   require('os').hostname(),
+                }));
+ 
+            } catch (err) {
+                console.error('[WORKER-MEETING] Error:', err.message);
+                redisMaster.publish(`meeting_result_${jobId}`, JSON.stringify({
+                    transcript: '',
+                    summary: 'Processing failed: ' + err.message,
+                    actions: [], decisions: [], questions: [],
+                    error: err.message
+                }));
+                // Also surface the error in the progress channel
+                redisMaster.publish(`meeting_progress_${jobId}`, JSON.stringify({
+                    stage: 'Error', pct: 0, detail: err.message
+                }));
+            }
+        }
+    } catch (err) {
+        // Redis connection errors — log and keep going
+        if (err.message && !err.message.includes('Connection')) {
+            console.error('[WORKER-MEETING] Loop error:', err.message);
+        }
+    }
+ 
+    // Small delay to avoid hammering Redis when the queue is empty
+    setTimeout(meetingWorkerLoop, 500);
+}   
+    meetingWorkerLoop();
     aiWorkerLoop();
     translateWorkerLoop(); // A nyílt, publikus lokális fordító
     workerLoop();

@@ -42,7 +42,7 @@ pipeline {
     post {
         success {
             //keeps last few builds for rollback, delete older images
-            sh './docker image prune -f --filter "until=24h"'
+            sh './docker image prune -f --filter "until=12h"'
         }
         failure {
             // if the build fails, remove the just-built image to reclaim space

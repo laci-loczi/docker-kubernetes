@@ -519,7 +519,7 @@ function toggleTechModal(show) {
     }
 }
 
-// --- SUBTITLE TRANSLATION LOGIC (SPAM PROTECTION INCLUDED) ---
+// sub translation
 const srtInput = document.getElementById('srtInput');
 const translateBtn = document.getElementById('translateBtn');
 const subStatus = document.getElementById('subStatus');
@@ -634,3 +634,13 @@ function setupTranslator(prefix, color, name) {
 
 setupTranslator('deepl', '#3b82f6', 'DeepL');
 setupTranslator('gemini', '#10b981', 'Gemini');
+
+function toggleTelemetry() {
+    document.getElementById('telemetryContent').classList.toggle('open');
+    document.getElementById('telemetryBtn').classList.toggle('active');
+}
+
+function toggleJSTelemetry() {
+    document.getElementById('telemetryJSContent').classList.toggle('open');
+    document.getElementById('telemetryJSBtn').classList.toggle('active');
+}
