@@ -42,6 +42,33 @@
         </div>
     </section>
 
+    <section style="margin-top: 40px; margin-bottom: 40px; width: 100%;">
+        <div class="card" style="background: var(--card-bg); border-color: var(--border-color);">
+            <div class="card-header" style="margin-bottom: 15px;">
+                <div>
+                    <div class="card-title">K8s AI Guitar Tracker (Polyphonic AMT)</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px;">
+                        Upload a guitar track. Python AI Workers extract the notes, Node.js delivers them real-time!
+                    </div>
+                </div>
+                <i class="fas fa-guitar" style="color: #f43f5e; font-size: 1.5rem;"></i>
+            </div>
+            
+            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 20px;">
+                <input type="file" id="guitarInput" accept=".wav,.mp3" style="background: var(--bg-color); color: var(--text-main); padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer;">
+                <button id="analyzeGuitarBtn" style="background: #f43f5e; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; box-shadow: 0 0 10px rgba(244, 63, 94, 0.4);">
+                    <i class="fas fa-bolt"></i> Generate TAB
+                </button>
+                <div id="guitarStatus" style="color: var(--text-muted); font-size: 0.9rem; font-family: monospace;">Waiting for track...</div>
+            </div>
+
+            <div style="position: relative; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid var(--border-color); background: #000;">
+                <canvas id="guitarCanvas" width="800" height="400" style="width: 100%; display: block;"></canvas>
+            </div>
+            
+            <audio id="guitarAudio" controls style="width: 100%; margin-top: 15px; outline: none; border-radius: 6px;"></audio>
+        </div>
+    </section>
     
         
     
